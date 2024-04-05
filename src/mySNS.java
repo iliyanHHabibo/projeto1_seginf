@@ -1,6 +1,8 @@
+import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.OutputStream;
+import java.io.InputStream;
 import java.net.Socket;
 import java.security.PublicKey;
 import java.util.ArrayList;
@@ -164,6 +166,9 @@ public class mySNS{
             //to encrypt the data before sending it
             CipherOutputStream cos = new CipherOutputStream(socketOut, c);
 
+            //tell the server that we have begun sending the file
+            socketOut.write("inicio do envio do ficheiro".getBytes());
+
             //send to the server the filename
             socketOut.write(filename.getBytes());
 
@@ -175,8 +180,12 @@ public class mySNS{
                 cos.write(buffer, 0, bytesRead);
             }
 
-            cos.close();
+            //if we close the CipherOutputStream, we close the socket output stream as well
+            //cos.close();
             fis.close();
+
+            //tell the server that we have finished sending the file
+            socketOut.write("fim do envio do ficheiro".getBytes());
 
             System.out.println("Ficheiro " + filename + " enviado com sucesso.");
 
@@ -195,9 +204,14 @@ public class mySNS{
             // Encrypt the AES key with the RSA public key
             byte[] encryptedKey = cipher.doFinal(key.getEncoded());
 
+            //tell the server that we are sending the encrypted key
+            socket.getOutputStream().write("inicio do envio da chave secreta encriptada".getBytes());
+
             //write the encrypted key to the socket's OutputStream
-            OutputStream socketOut = socket.getOutputStream();
-            socketOut.write(encryptedKey);
+            socket.getOutputStream().write(encryptedKey);
+
+            //tell the server that we have finished sending the encrypted key
+            socket.getOutputStream().write("fim do envio da chave secreta encriptada".getBytes());
 
             System.out.println("Chave secreta encriptada enviada com sucesso.");
 
@@ -218,6 +232,12 @@ public class mySNS{
 
             //get the doctor's public key
             PublicKey publicKey = getDoctorPublicKey(patientUsername, doctorUsername, keyStorePassword);
+
+            //send name of patient to server. so we can associate a directory to the patient
+            DataOutputStream dataOutputStream = new DataOutputStream(socket.getOutputStream());
+            dataOutputStream.writeUTF(patientUsername);
+            dataOutputStream.flush(); //guarantee that the data that may be in the buffer is sent to the server
+ 
 
             //encrypt and send the files and the secret key
             for (String filename : fileList){
@@ -243,7 +263,7 @@ public class mySNS{
         try{
          // Establish connection to the server
             Socket socket = new Socket(serverAddress, serverPort);
-            System.out.println("Connected to server at " + serverAddress + ":" + serverPort); 
+            System.out.println("Conectado ao servidor em: " + serverAddress + ":" + serverPort); 
 
             //case sc, sa, se, g (create one function for each and then call the functions here)
             switch (mode){
@@ -254,10 +274,23 @@ public class mySNS{
                 //case se:
                 //case g:
             }
-        
+            
+            //send message to server to indicate that we have finished sending files
+            OutputStream socketOut = socket.getOutputStream();
+            socketOut.write("FIM DO ENVIO DE FICHEIROS".getBytes());
+
+
+            //CLIENT CANT CLOSE THE SOCKET BECAUSE THE SERVER WILL BE SENDING A RESPONSE TO THE REQUEST
+            //THE RESPONSE COULD BE AN ERROR MESSAGE OR A SUCCESS MESSAGE
+            InputStream socketIn = socket.getInputStream();
+            byte[] buffer = new byte[4096];
+            int bytesRead = socketIn.read(buffer);
+            String response = new String(buffer, 0, bytesRead);
+            System.out.println(response);
+
             // Close the socket
             socket.close();
-            System.out.println("Disconnected from server.");
+            System.out.println("Desconectado do servidor.");
 
         } catch (Exception e){
             System.out.println("Error: " + e.getMessage());
