@@ -126,7 +126,7 @@ public class mySNSServer {
 
     private static void saveEncryptedKey(DataInputStream dataInputStream, File patientDirectory, String filename, DataOutputStream dataOutputStream) throws IOException {
         // Constrói o nome do arquivo onde a chave criptografada será salva
-        String encryptedKeyName = filename + ".chave_secreta" + patientDirectory.getName();
+        String encryptedKeyName = filename + ".chave_secreta." + patientDirectory.getName();
         File encryptedKeyFile = new File(patientDirectory, encryptedKeyName);
     
         System.out.println("Verificando existência da chave criptografada: " + encryptedKeyFile.getName());
