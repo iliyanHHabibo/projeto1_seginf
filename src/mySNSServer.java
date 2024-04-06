@@ -66,16 +66,6 @@ public class mySNSServer {
     }
 
 
-    public static String bytesToHex(byte[] bytes, int length) {
-        StringBuilder hexString = new StringBuilder();
-        for (int i = 0; i < length; i++) {
-            String hex = Integer.toHexString(0xff & bytes[i]);
-            if (hex.length() == 1) hexString.append('0');
-            hexString.append(hex);
-        }
-        return hexString.toString();
-    }
-    
     private static void saveEncryptedFile(DataInputStream dataInputStream, File patientDirectory, String filename, DataOutputStream dataOutputStream) throws IOException {
         File newFile = new File(patientDirectory, filename + ".cifrado");
         System.out.println("Verificando existência do arquivo cifrado: " + newFile.getName());
@@ -190,3 +180,7 @@ public class mySNSServer {
     }
     
 }
+
+
+//comando para compilar: javac mySNSServer.java
+//comando para executar: java mySNSServer 23456

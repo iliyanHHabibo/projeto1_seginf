@@ -293,17 +293,16 @@ public class mySNS{
             }
             
             //send message to server to indicate that we have finished sending files
-            OutputStream socketOut = socket.getOutputStream();
-            socketOut.write("FIM DO ENVIO DE FICHEIROS".getBytes());
-
-
-            //CLIENT CANT CLOSE THE SOCKET BECAUSE THE SERVER WILL BE SENDING A RESPONSE TO THE REQUEST
-            //THE RESPONSE COULD BE AN ERROR MESSAGE OR A SUCCESS MESSAGE
+            DataOutputStream dos = new DataOutputStream(socket.getOutputStream());
+            dos.writeUTF("FIM DO ENVIO DE FICHEIROS");
+            dos.flush();
+            
+            /**
             InputStream socketIn = socket.getInputStream();
             byte[] buffer = new byte[4096];
             int bytesRead = socketIn.read(buffer);
             String response = new String(buffer, 0, bytesRead);
-            System.out.println(response);
+            System.out.println(response);*/
 
             // Close the socket
             socket.close();
@@ -314,6 +313,7 @@ public class mySNS{
         }
     }
 
-
-
 }
+
+//comando para compilar: javac mySNS.java
+//comando para correr: java mySNS -a 127.0.0.1:23456 -m silva -u maria -sc exame1.png relatorio1.pdf
