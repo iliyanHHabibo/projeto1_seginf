@@ -1,9 +1,12 @@
+import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.OutputStream;
 import java.io.InputStream;
 import java.net.Socket;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.security.PublicKey;
 import java.util.ArrayList;
 import java.util.List;
@@ -150,6 +153,7 @@ public class mySNS{
     }
 
     //use the secret AES key to encrypt the file and sending it to the server
+    //receives success or failure message from the server
     public static void encryptFileAndSend (String filename, SecretKey key, Socket socket){
         try{
             // Initialize the cipher for encryption with the generated key
@@ -157,37 +161,39 @@ public class mySNS{
             c.init(Cipher.ENCRYPT_MODE, key);
 
             // Open input and output streams for reading from and writing to files
-            FileInputStream fis = new FileInputStream(filename); // Open input stream to read from "a.txt" file
+            FileInputStream fis = new FileInputStream(filename); // Open input stream to read from file filename 
             
             //get the OutputStream of the Socket to send data to the server
             OutputStream socketOut = socket.getOutputStream();
 
-            //create a CipherOutputStream based on the OutputStream of the socket
-            //to encrypt the data before sending it
-            CipherOutputStream cos = new CipherOutputStream(socketOut, c);
-
             //tell the server that we have begun sending the file
-            socketOut.write("inicio do envio do ficheiro".getBytes());
+            DataOutputStream dataOutputStream = new DataOutputStream(socket.getOutputStream());
+            dataOutputStream.writeUTF("inicio do envio do ficheiro:" + filename);
+            dataOutputStream.flush(); //guarantee that the data that may be in the buffer is sent to the server
 
-            //send to the server the filename
-            socketOut.write(filename.getBytes());
+            // Lê o arquivo e criptografa
+            byte[] fileBytes = Files.readAllBytes(Paths.get(filename));
+            byte[] encryptedFileBytes = c.doFinal(fileBytes);
 
-            byte[] buffer = new byte[4096]; 
-            int bytesRead;
+            // Prepara para enviar os dados
+            DataOutputStream dos = new DataOutputStream(socket.getOutputStream());
+            
+            // Envia o tamanho do arquivo criptografado
+            dos.writeInt(encryptedFileBytes.length);
+            
+            // Envia o arquivo criptografado
+            dos.write(encryptedFileBytes);
 
-            //read the file and write the encrypted data directly to the Socket's OutputStream
-            while ((bytesRead = fis.read(buffer)) != -1) {
-                cos.write(buffer, 0, bytesRead);
-            }
-
-            //if we close the CipherOutputStream, we close the socket output stream as well
-            //cos.close();
+            // Close the file input stream
             fis.close();
 
-            //tell the server that we have finished sending the file
-            socketOut.write("fim do envio do ficheiro".getBytes());
-
             System.out.println("Ficheiro " + filename + " enviado com sucesso.");
+
+            // Preparar para receber a resposta do servidor
+            DataInputStream serverResponseStream = new DataInputStream(socket.getInputStream());
+            String serverResponse = serverResponseStream.readUTF(); // Ler a resposta do servidor
+
+            System.out.println("Resposta do servidor: " + serverResponse);
 
         } catch (Exception e){
             e.printStackTrace();
@@ -195,29 +201,40 @@ public class mySNS{
         }
     }
 
-    public static void encryptAndSendSecretKey(SecretKey key, PublicKey publicKey, Socket socket){
-        try{
+    public static void encryptAndSendSecretKey(SecretKey key, PublicKey publicKey, Socket socket, String filename) {
+        try {
             // Initialize a Cipher for RSA encryption
             Cipher cipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
             cipher.init(Cipher.ENCRYPT_MODE, publicKey);
-
+    
             // Encrypt the AES key with the RSA public key
             byte[] encryptedKey = cipher.doFinal(key.getEncoded());
-
-            //tell the server that we are sending the encrypted key
-            socket.getOutputStream().write("inicio do envio da chave secreta encriptada".getBytes());
-
-            //write the encrypted key to the socket's OutputStream
-            socket.getOutputStream().write(encryptedKey);
-
-            //tell the server that we have finished sending the encrypted key
-            socket.getOutputStream().write("fim do envio da chave secreta encriptada".getBytes());
-
-            System.out.println("Chave secreta encriptada enviada com sucesso.");
-
-        } catch (Exception e){
+    
+            // Prepare to send the encrypted key
+            DataOutputStream dos = new DataOutputStream(socket.getOutputStream());
+    
+            // Inform the server that we are about to send an encrypted key
+            dos.writeUTF("inicio do envio da chave secreta encriptada:" + filename);
+            dos.flush();
+    
+            // Send the size of the encrypted key
+            dos.writeInt(encryptedKey.length);
+            dos.flush();
+    
+            // Send the encrypted key
+            dos.write(encryptedKey);
+            dos.flush();
+    
+            System.out.println("Chave secreta encriptada e tamanho enviados com sucesso.");
+    
+            // Prepare to receive the server's response
+            DataInputStream serverResponseStream = new DataInputStream(socket.getInputStream());
+            String serverResponse = serverResponseStream.readUTF(); // Read the server's response
+    
+            System.out.println("Resposta do servidor: " + serverResponse);
+        } catch (Exception e) {
             e.printStackTrace();
-            System.err.println("Erro ao encriptar a chave secreta.");
+            System.err.println("Erro ao encriptar e enviar a chave secreta.");
         }
     }
     
@@ -249,7 +266,7 @@ public class mySNS{
                     encryptFileAndSend(filename, key, socket);
 
                     //encrypt and send the secret key
-                    encryptAndSendSecretKey(key, publicKey, socket);
+                    encryptAndSendSecretKey(key, publicKey, socket, filename);
                 }
             }
         } catch (Exception e){
