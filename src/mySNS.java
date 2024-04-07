@@ -2,20 +2,27 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.IOException;
 import java.io.OutputStream;
 import java.io.InputStream;
 import java.net.Socket;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.security.PublicKey;
+import java.security.Signature;
+import java.security.SignatureException;
 import java.util.ArrayList;
 import java.util.List;
 import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
 import java.security.KeyStore;
+import java.security.NoSuchAlgorithmException;
+import java.security.PrivateKey;
 import java.security.cert.Certificate;
 import javax.crypto.Cipher;
 import javax.crypto.CipherOutputStream;
+import java.security.InvalidKeyException;
+
 
 public class mySNS{
 
@@ -37,8 +44,12 @@ public class mySNS{
             mode = "sc";
             connectAndSend(mySNS.serverAddress, mySNS.serverPort, mode, mySNS.patientUsername, mySNS.doctorUsername, "123456", mySNS.scFiles);
         }
-
-       //else if para os outros modos (sa, se, g)
+        //else if para os outros modos (sa, se, g)
+        if (mySNS.saFiles != null) {
+            mode = "sa";
+            connectAndSend(mySNS.serverAddress, mySNS.serverPort, mode, mySNS.patientUsername, mySNS.doctorUsername, "123456", mySNS.saFiles);
+            
+        }
     }
 
     private void parseArgs(String[] args) {
@@ -124,7 +135,50 @@ public class mySNS{
             return null;
         }
     }
+    public static PrivateKey getPrivateKey(String username, String keystorePassword, String alias) {
+        try {
+            // Carregar a keystore
+            FileInputStream is = new FileInputStream(username+".keystore");
+            KeyStore keystore = KeyStore.getInstance(KeyStore.getDefaultType());
+            keystore.load(is, keystorePassword.toCharArray());
+            is.close();
 
+            // Obter a chave privada
+            KeyStore.PrivateKeyEntry pkEntry = (KeyStore.PrivateKeyEntry) keystore.getEntry(alias,
+                    new KeyStore.PasswordProtection(keystorePassword.toCharArray()));
+            if (pkEntry == null) {
+                System.err.println("Entrada para o alias '" + alias + "' não encontrada ou senha incorreta.");
+                return null;
+            }
+
+            return pkEntry.getPrivateKey();
+        } catch (Exception e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+    public static PublicKey getPublicKey(String username, String keystorePassword, String alias) {
+        try {
+            // Carregar a keystore
+            FileInputStream is = new FileInputStream(username+".keystore");
+            KeyStore keystore = KeyStore.getInstance(KeyStore.getDefaultType());
+            keystore.load(is, keystorePassword.toCharArray());
+            is.close();
+
+            // Obter o certificado do usuário
+            Certificate cert = keystore.getCertificate(alias);
+            if (cert == null) {
+                System.err.println("Certificado para o alias '" + alias + "' não encontrado na keystore.");
+                return null;
+            }
+
+            // Retornar a chave pública associada ao certificado
+            return cert.getPublicKey();
+        } catch (Exception e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
     public static PublicKey getDoctorPublicKey(String patientUsername, String doctorUsername, String keyStorePassword) {
         try{
             //we get the doctor's certificate from the patient's keystore
@@ -274,6 +328,76 @@ public class mySNS{
             System.err.println("Erro ao enviar ficheiros.");
         }
     }
+    //method to do everything regarding the option -sa
+    public static void sa(List<String> filenames, Socket socket, String patientUsername, String doctorUsername, String keyStorePassword) {
+    try {
+        DataOutputStream dos = new DataOutputStream(socket.getOutputStream());
+        DataInputStream dis = new DataInputStream(socket.getInputStream());
+
+        PrivateKey privateKey = getPrivateKey(patientUsername, keyStorePassword, patientUsername);
+        PublicKey publicKey = getPublicKey(patientUsername, keyStorePassword, patientUsername);
+        for (String filename : filenames) {
+            File file = new File(filename);
+            if (!file.exists()) {
+                System.out.println("Erro: O arquivo " + filename + " não existe localmente.");
+                continue;
+            }
+
+            // Assinar o arquivo
+            byte[] signature = signFile(file, privateKey);
+
+            // Enviar nome do arquivo assinado
+            dos.writeUTF(file.getName() + ".assinado");
+
+            // Enviar arquivo
+            sendFile(file, dos);
+
+            // Enviar nome da assinatura
+            dos.writeUTF(file.getName() + ".assinatura." + doctorUsername);
+
+            // Enviar assinatura
+            dos.writeInt(signature.length);
+            dos.write(signature);
+
+            // Esperar resposta do servidor para cada arquivo e assinatura enviados
+            String response = dis.readUTF();
+            System.out.println(response);
+        }
+
+        // Indicar ao servidor que a transmissão dos arquivos acabou
+        dos.writeUTF("FIM_DO_ENVIO_DE_FICHEIROS");
+
+    } catch (IOException | NoSuchAlgorithmException | SignatureException e) {
+        e.printStackTrace();
+        System.err.println("Erro durante o envio de arquivos -sa.");
+    }
+}
+
+
+private static void sendFile(File file, DataOutputStream dos) throws IOException {
+    // Enviar tamanho do arquivo
+    long fileSize = file.length();
+    dos.writeLong(fileSize);
+
+    // Enviar arquivo
+    FileInputStream fis = new FileInputStream(file);
+    byte[] buffer = new byte[4096];
+    int bytesRead;
+    while ((bytesRead = fis.read(buffer)) != -1) {
+        dos.write(buffer, 0, bytesRead);
+    }
+    fis.close();
+}
+
+private static byte[] signFile(File file, PrivateKey privateKey) throws NoSuchAlgorithmException, InvalidKeyException, SignatureException, IOException {
+    // Implemente a lógica de assinatura aqui
+    // Este é um pseudocódigo, ajuste conforme a lógica de assinatura real que você está utilizando
+    Signature privateSignature = Signature.getInstance("SHA256withRSA");
+    privateSignature.initSign(privateKey);
+    byte[] fileData = Files.readAllBytes(file.toPath());
+    privateSignature.update(fileData);
+    return privateSignature.sign();
+}
 
     // connects to server and calls functions sc, sa, se, g (string mode)
     public static void connectAndSend(String serverAddress, int serverPort, String mode, String patientUsername, String doctorUsername, String keyStorePassword, List<String> fileList){
@@ -314,6 +438,7 @@ public class mySNS{
     }
 
 }
+
 
 //comando para compilar: javac mySNS.java
 //comando para correr: java mySNS -a 127.0.0.1:23456 -m silva -u maria -sc exame1.png relatorio1.pdf
