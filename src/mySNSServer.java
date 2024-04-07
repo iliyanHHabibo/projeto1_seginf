@@ -33,33 +33,44 @@ public class mySNSServer {
             DataInputStream dataInputStream = new DataInputStream(clientSocket.getInputStream());
             OutputStream outputStream = clientSocket.getOutputStream();
 
-            // Lê o nome do paciente
-            String patientName = dataInputStream.readUTF();
-            System.out.println("A receber dados para o/a paciente: " + patientName);
+            // receive the mode of operation
+            String mode = dataInputStream.readUTF();
+            System.out.println("Modo de operação: " + mode);
 
-            // checks if directory exists and creates it if it doesn't
-            File patientDirectory = checkOrCreateDirectory(patientName);
+            switch (mode){
+                case "sc":
+                        // Lê o nome do paciente
+                    String patientName = dataInputStream.readUTF();
+                    System.out.println("A receber dados para o/a paciente: " + patientName);
 
-            while (true) {
-                String command = dataInputStream.readUTF();
-                System.out.println("Comando recebido: " + command);
-                
-                if ("FIM DO ENVIO DE FICHEIROS".equals(command)) {
-                    System.out.println("Todos os ficheiros e chaves foram recebidos.");
+                    // checks if directory exists and creates it if it doesn't
+                    File patientDirectory = checkOrCreateDirectory(patientName);
+
+                    while (true) {
+                        String command = dataInputStream.readUTF();
+                        System.out.println("Comando recebido: " + command);
+                        
+                        if ("FIM DO ENVIO DE FICHEIROS".equals(command)) {
+                            System.out.println("Todos os ficheiros e chaves foram recebidos.");
+                            break;
+                        } else if (command.startsWith("inicio do envio do ficheiro")) {
+                            System.out.println("entrou inicio do envio do ficheiro");
+                            String[] parts = command.split(":");
+                            String filename = parts[1].trim();
+                            System.out.println("filename: " + filename);
+                            saveEncryptedFile(dataInputStream, patientDirectory, filename, new DataOutputStream(outputStream));
+                        } else if (command.startsWith("inicio do envio da chave secreta encriptada")) {
+                            System.out.println("entrou inicio do envio da chave secreta encriptada");
+                            String[] parts = command.split(":");
+                            String filename = parts[1].trim();
+                            saveEncryptedKey(dataInputStream, patientDirectory, filename, new DataOutputStream(outputStream));
+                        }
+                    }
                     break;
-                } else if (command.startsWith("inicio do envio do ficheiro")) {
-                    System.out.println("entrou inicio do envio do ficheiro");
-                    String[] parts = command.split(":");
-                    String filename = parts[1].trim();
-                    System.out.println("filename: " + filename);
-                    saveEncryptedFile(dataInputStream, patientDirectory, filename, new DataOutputStream(outputStream));
-                } else if (command.startsWith("inicio do envio da chave secreta encriptada")) {
-                    System.out.println("entrou inicio do envio da chave secreta encriptada");
-                    String[] parts = command.split(":");
-                    String filename = parts[1].trim();
-                    saveEncryptedKey(dataInputStream, patientDirectory, filename, new DataOutputStream(outputStream));
+
+                case "sa":
+                    System.out.println("entrou no sa");
                 }
-            }
         } catch (IOException e) {
             System.err.println("Erro ao processar a conexão do cliente: " + e.getMessage());
         }

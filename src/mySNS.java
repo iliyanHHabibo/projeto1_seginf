@@ -40,12 +40,12 @@ public class mySNS{
         mySNS mySNS = new mySNS();
         mySNS.parseArgs(args);
         String mode;
-        if (mySNS.scFiles != null) {
+        if (mySNS.scFiles != null && !mySNS.scFiles.isEmpty()){
             mode = "sc";
             connectAndSend(mySNS.serverAddress, mySNS.serverPort, mode, mySNS.patientUsername, mySNS.doctorUsername, "123456", mySNS.scFiles);
         }
         //else if para os outros modos (sa, se, g)
-        if (mySNS.saFiles != null) {
+        else if (mySNS.saFiles != null && !mySNS.saFiles.isEmpty()) {
             mode = "sa";
             connectAndSend(mySNS.serverAddress, mySNS.serverPort, mode, mySNS.patientUsername, mySNS.doctorUsername, "123456", mySNS.saFiles);
             
@@ -208,7 +208,7 @@ public class mySNS{
 
     //use the secret AES key to encrypt the file and sending it to the server
     //receives success or failure message from the server
-    public static void encryptFileAndSend (String filename, SecretKey key, Socket socket){
+    public static void encryptFileAndSend (String filename, SecretKey key, Socket socket, DataOutputStream dataOutputStream){
         try{
             // Initialize the cipher for encryption with the generated key
             Cipher c = Cipher.getInstance("AES");
@@ -221,22 +221,18 @@ public class mySNS{
             OutputStream socketOut = socket.getOutputStream();
 
             //tell the server that we have begun sending the file
-            DataOutputStream dataOutputStream = new DataOutputStream(socket.getOutputStream());
             dataOutputStream.writeUTF("inicio do envio do ficheiro:" + filename);
             dataOutputStream.flush(); //guarantee that the data that may be in the buffer is sent to the server
 
             // Lê o arquivo e criptografa
             byte[] fileBytes = Files.readAllBytes(Paths.get(filename));
             byte[] encryptedFileBytes = c.doFinal(fileBytes);
-
-            // Prepara para enviar os dados
-            DataOutputStream dos = new DataOutputStream(socket.getOutputStream());
             
             // Envia o tamanho do arquivo criptografado
-            dos.writeInt(encryptedFileBytes.length);
+            dataOutputStream.writeInt(encryptedFileBytes.length);
             
             // Envia o arquivo criptografado
-            dos.write(encryptedFileBytes);
+            dataOutputStream.write(encryptedFileBytes);
 
             // Close the file input stream
             fis.close();
@@ -255,7 +251,7 @@ public class mySNS{
         }
     }
 
-    public static void encryptAndSendSecretKey(SecretKey key, PublicKey publicKey, Socket socket, String filename) {
+    public static void encryptAndSendSecretKey(SecretKey key, PublicKey publicKey, Socket socket, String filename, DataOutputStream dataOutputStream) {
         try {
             // Initialize a Cipher for RSA encryption
             Cipher cipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
@@ -264,20 +260,17 @@ public class mySNS{
             // Encrypt the AES key with the RSA public key
             byte[] encryptedKey = cipher.doFinal(key.getEncoded());
     
-            // Prepare to send the encrypted key
-            DataOutputStream dos = new DataOutputStream(socket.getOutputStream());
-    
             // Inform the server that we are about to send an encrypted key
-            dos.writeUTF("inicio do envio da chave secreta encriptada:" + filename);
-            dos.flush();
+            dataOutputStream.writeUTF("inicio do envio da chave secreta encriptada:" + filename);
+            dataOutputStream.flush();
     
             // Send the size of the encrypted key
-            dos.writeInt(encryptedKey.length);
-            dos.flush();
+            dataOutputStream.writeInt(encryptedKey.length);
+            dataOutputStream.flush();
     
             // Send the encrypted key
-            dos.write(encryptedKey);
-            dos.flush();
+            dataOutputStream.write(encryptedKey);
+            dataOutputStream.flush();
     
             System.out.println("Chave secreta encriptada e tamanho enviados com sucesso.");
     
@@ -294,7 +287,7 @@ public class mySNS{
     
 
     //method to do everything regarding the option -sc
-    public static void sc (Socket socket, List<String> fileList, String patientUsername, String doctorUsername, String keyStorePassword){
+    public static void sc (Socket socket, List<String> fileList, String patientUsername, String doctorUsername, String keyStorePassword, DataOutputStream dataOutputStream){
         try{
             //verify if the keystore exists
             if (!verifyKeystoreExistence(patientUsername)){
@@ -305,7 +298,6 @@ public class mySNS{
             PublicKey publicKey = getDoctorPublicKey(patientUsername, doctorUsername, keyStorePassword);
 
             //send name of patient to server. so we can associate a directory to the patient
-            DataOutputStream dataOutputStream = new DataOutputStream(socket.getOutputStream());
             dataOutputStream.writeUTF(patientUsername);
             dataOutputStream.flush(); //guarantee that the data that may be in the buffer is sent to the server
  
@@ -317,12 +309,15 @@ public class mySNS{
                     SecretKey key = generateAESKey();
 
                     //encrypt the file and send it to the server
-                    encryptFileAndSend(filename, key, socket);
+                    encryptFileAndSend(filename, key, socket, dataOutputStream);
 
                     //encrypt and send the secret key
-                    encryptAndSendSecretKey(key, publicKey, socket, filename);
+                    encryptAndSendSecretKey(key, publicKey, socket, filename, dataOutputStream);
                 }
             }
+            //send message to server that we have finished sending files
+            dataOutputStream.writeUTF("FIM DO ENVIO DE FICHEIROS");
+            dataOutputStream.flush(); //guarantee that the data that may be in the buffer is sent to the server
         } catch (Exception e){
             e.printStackTrace();
             System.err.println("Erro ao enviar ficheiros.");
@@ -374,6 +369,7 @@ public class mySNS{
     
             // Indicar ao servidor que a transmissão dos arquivos acabou
             dos.writeUTF("FIM_DO_ENVIO_DE_FICHEIROS");
+            dos.flush();
     
         } catch (IOException e) {
             e.printStackTrace();
@@ -420,26 +416,30 @@ private static byte[] signFile(File file, PrivateKey privateKey) {
             System.out.println("Conectado ao servidor em: " + serverAddress + ":" + serverPort); 
 
             //case sc, sa, se, g (create one function for each and then call the functions here)
-            switch (mode){
-                case "sc":
-                    sc(socket, fileList, patientUsername, doctorUsername, keyStorePassword);
-                    break;
-                //case sa:
-                //case se:
-                //case g:
+            try (DataOutputStream dataOutputStream = new DataOutputStream(socket.getOutputStream())) {
+                switch (mode) {
+                    case "sc":
+                        dataOutputStream.writeUTF("sc");
+                        dataOutputStream.flush();
+                        sc(socket, fileList, patientUsername, doctorUsername, keyStorePassword, dataOutputStream);
+                        //close dataOutputStream
+                        dataOutputStream.close();
+                        break;
+                    case "sa":
+                        dataOutputStream.writeUTF("sa");
+                        dataOutputStream.flush();
+                        sa(fileList, socket, patientUsername, doctorUsername, keyStorePassword);
+                        //close dataOutputStream
+                        dataOutputStream.close();
+                        break;
+                    default:
+                        System.out.println("Invalid mode");
+                        break;
+                }
+            } catch (IOException e) {
+                // Handle exceptions related to I/O operations
+                e.printStackTrace();
             }
-            
-            //send message to server to indicate that we have finished sending files
-            DataOutputStream dos = new DataOutputStream(socket.getOutputStream());
-            dos.writeUTF("FIM DO ENVIO DE FICHEIROS");
-            dos.flush();
-            
-            /**
-            InputStream socketIn = socket.getInputStream();
-            byte[] buffer = new byte[4096];
-            int bytesRead = socketIn.read(buffer);
-            String response = new String(buffer, 0, bytesRead);
-            System.out.println(response);*/
 
             // Close the socket
             socket.close();
@@ -454,4 +454,5 @@ private static byte[] signFile(File file, PrivateKey privateKey) {
 
 
 //comando para compilar: javac mySNS.java
-//comando para correr: java mySNS -a 127.0.0.1:23456 -m silva -u maria -sc exame1.png relatorio1.pdf
+//comando para correr(sc): java mySNS -a 127.0.0.1:23456 -m silva -u maria -sc exame1.png relatorio1.pdf
+//comando para correr (sa): java mySNS -a 127.0.0.1:23456 -m silva -u maria -sa exame1.png relatorio1.pdf
