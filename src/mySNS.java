@@ -330,48 +330,57 @@ public class mySNS{
     }
     //method to do everything regarding the option -sa
     public static void sa(List<String> filenames, Socket socket, String patientUsername, String doctorUsername, String keyStorePassword) {
-    try {
-        DataOutputStream dos = new DataOutputStream(socket.getOutputStream());
-        DataInputStream dis = new DataInputStream(socket.getInputStream());
-
-        PrivateKey privateKey = getPrivateKey(patientUsername, keyStorePassword, patientUsername);
-        PublicKey publicKey = getPublicKey(patientUsername, keyStorePassword, patientUsername);
-        for (String filename : filenames) {
-            File file = new File(filename);
-            if (!file.exists()) {
-                System.out.println("Erro: O arquivo " + filename + " não existe localmente.");
-                continue;
+        try {
+            DataOutputStream dos = new DataOutputStream(socket.getOutputStream());
+            DataInputStream dis = new DataInputStream(socket.getInputStream());
+    
+            PrivateKey privateKey = getPrivateKey(patientUsername, keyStorePassword, patientUsername);
+            if (privateKey == null) {
+                System.err.println("Falha ao recuperar a chave privada.");
+                return;
             }
-
-            // Assinar o arquivo
-            byte[] signature = signFile(file, privateKey);
-
-            // Enviar nome do arquivo assinado
-            dos.writeUTF(file.getName() + ".assinado");
-
-            // Enviar arquivo
-            sendFile(file, dos);
-
-            // Enviar nome da assinatura
-            dos.writeUTF(file.getName() + ".assinatura." + doctorUsername);
-
-            // Enviar assinatura
-            dos.writeInt(signature.length);
-            dos.write(signature);
-
-            // Esperar resposta do servidor para cada arquivo e assinatura enviados
-            String response = dis.readUTF();
-            System.out.println(response);
+    
+            for (String filename : filenames) {
+                File file = new File(filename);
+                if (!file.exists()) {
+                    System.out.println("Erro: O arquivo " + filename + " não existe localmente.");
+                    continue;
+                }
+    
+                // Assinar o arquivo
+                byte[] signature = signFile(file, privateKey);
+                if (signature == null) {
+                    System.err.println("Falha ao assinar o arquivo.");
+                    continue;
+                }
+    
+                // Enviar nome do arquivo assinado
+                dos.writeUTF(file.getName() + ".assinado");
+    
+                // Enviar arquivo
+                sendFile(file, dos);
+    
+                // Enviar nome da assinatura
+                dos.writeUTF(file.getName() + ".assinatura." + doctorUsername);
+    
+                // Enviar assinatura
+                dos.writeInt(signature.length);
+                dos.write(signature);
+    
+                // Esperar resposta do servidor para cada arquivo e assinatura enviados
+                String response = dis.readUTF();
+                System.out.println(response);
+            }
+    
+            // Indicar ao servidor que a transmissão dos arquivos acabou
+            dos.writeUTF("FIM_DO_ENVIO_DE_FICHEIROS");
+    
+        } catch (IOException e) {
+            e.printStackTrace();
+            System.err.println("Erro durante o envio de arquivos -sa.");
         }
-
-        // Indicar ao servidor que a transmissão dos arquivos acabou
-        dos.writeUTF("FIM_DO_ENVIO_DE_FICHEIROS");
-
-    } catch (IOException | NoSuchAlgorithmException | SignatureException e) {
-        e.printStackTrace();
-        System.err.println("Erro durante o envio de arquivos -sa.");
     }
-}
+    
 
 
 private static void sendFile(File file, DataOutputStream dos) throws IOException {
@@ -389,15 +398,19 @@ private static void sendFile(File file, DataOutputStream dos) throws IOException
     fis.close();
 }
 
-private static byte[] signFile(File file, PrivateKey privateKey) throws NoSuchAlgorithmException, InvalidKeyException, SignatureException, IOException {
-    // Implemente a lógica de assinatura aqui
-    // Este é um pseudocódigo, ajuste conforme a lógica de assinatura real que você está utilizando
-    Signature privateSignature = Signature.getInstance("SHA256withRSA");
-    privateSignature.initSign(privateKey);
-    byte[] fileData = Files.readAllBytes(file.toPath());
-    privateSignature.update(fileData);
-    return privateSignature.sign();
+private static byte[] signFile(File file, PrivateKey privateKey) {
+    try {
+        Signature privateSignature = Signature.getInstance("SHA256withRSA");
+        privateSignature.initSign(privateKey);
+        byte[] fileData = Files.readAllBytes(file.toPath());
+        privateSignature.update(fileData);
+        return privateSignature.sign();
+    } catch (NoSuchAlgorithmException | InvalidKeyException | SignatureException | IOException e) {
+        e.printStackTrace();
+        return null;
+    }
 }
+
 
     // connects to server and calls functions sc, sa, se, g (string mode)
     public static void connectAndSend(String serverAddress, int serverPort, String mode, String patientUsername, String doctorUsername, String keyStorePassword, List<String> fileList){
