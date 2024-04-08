@@ -70,7 +70,15 @@ public class mySNSServer {
 
                 case "sa":
                     System.out.println("entrou no sa");
+
+                case "se":
+                    System.out.println("Entrou na op -se");
+
+                case "g":
+                    System.out.println("Entrou na op -g");
                 }
+
+    
         } catch (IOException e) {
             System.err.println("Erro ao processar a conexão do cliente: " + e.getMessage());
         }

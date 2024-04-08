@@ -432,6 +432,12 @@ private static byte[] signFile(File file, PrivateKey privateKey) {
                         //close dataOutputStream
                         dataOutputStream.close();
                         break;
+                    
+                    case "se":
+                        dataOutputStream.writeUTF("se");
+                        dataOutputStream.flush();
+                        dataOutputStream.close();
+                        break;
                     default:
                         System.out.println("Invalid mode");
                         break;
