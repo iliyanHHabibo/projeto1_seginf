@@ -416,7 +416,7 @@ public class mySNS2 {
                     //Verificar que todas existem na nossa dir:
                     File seguro = new File(files.get(f)+".seguro");
                     File chave = new File(files.get(f)+".chave_secreta");
-                    File assinatura = new File(files.get(f)+".assinado."+userMed);
+                    File assinatura = new File(files.get(f)+".assinatura."+userMed);
                     File og = new File(files.get(f));
                     if (seguro.exists() && chave.exists() && assinatura.exists() && og.exists()){
                         //enviar seguro size e seguro nome:
@@ -441,17 +441,13 @@ public class mySNS2 {
                         out.writeObject(chave.getName());
 
                         //mandar file chave:
-                        FileInputStream chfile = new FileInputStream(chave);
-                        BufferedInputStream fileCh = new BufferedInputStream(chfile);
+                        FileInputStream keyFileInputStream = new FileInputStream(chave);
 
-                        byte[] buffer2 = new byte[1024];
-                        int i = 0;
-                        while ((i = fileCh.read(buffer2, 0, 1024)) > 0) {
-                            out.write(buffer2, 0, i);
-                        }
+                        byte[] buf = new byte[(int) chave.length()];
+                        keyFileInputStream.read(buf, 0, buf.length);
+                        out.write(buf, 0, buf.length);
 
-                        fileCh.close();
-                        chfile.close();
+                        keyFileInputStream.close();
 
                         //mandar assinado size e nome:
                         out.writeObject(assinatura.length());
@@ -488,7 +484,8 @@ public class mySNS2 {
                         ogfile.close();
 
 
-                    }//if alguma das files não existe na dir 
+                    }//if alguma das files não existe na dir ´
+                    System.out.println("Alguma file na op -sa não existe na dir");
                 }
                 out.writeObject("END");
                 out.writeObject("Dr.END");

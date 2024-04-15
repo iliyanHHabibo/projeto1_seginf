@@ -213,9 +213,107 @@ public class mySNSServer2 {
 					else if (op.equals("-se")){
 						//Receber file.seguro, file.chave_secreta, file.assinatura.userMed e original file:
 						//Receber file.seguro size e nome:
-						
+						Long seguroSize = 0L;
+						String seguroNome = "";
 
+						try{
+							seguroSize = (Long)inStream.readObject();
+							seguroNome = (String)inStream.readObject();
+						}catch (ClassNotFoundException e1) {
+							e1.printStackTrace();
+						}
+						System.out.println("Recebido: " + op + ", " + seguroNome + ", size: " + seguroSize);
+						//Receber file.seguro:
+						FileOutputStream outFileStream = new FileOutputStream(userUte + "/" + seguroNome);
+						BufferedOutputStream outFile = new BufferedOutputStream(outFileStream);
 
+						int file_s = seguroSize.intValue();
+						byte[] buffer = new byte[1024];
+						int bytesRead;
+						while (file_s > 0) {
+							bytesRead = inStream.read(buffer, 0, Math.min(buffer.length, file_s));
+							outFile.write(buffer, 0, bytesRead);
+							file_s -= bytesRead;
+						}
+						outFile.flush();
+						outFile.close();
+						outFileStream.close();
+
+						//Receber file.chave_secreta:
+						//Receber chave size e nome:
+						Long chaveSize = 0l;
+						String chaveNome = "";
+						try{
+							chaveSize = (Long)inStream.readObject();
+							chaveNome = (String)inStream.readObject();
+						}catch (ClassNotFoundException e){
+							e.printStackTrace();
+						}
+						System.out.println("Recebido: " + op + ", " + chaveNome + ", size: " + chaveSize);
+
+						//Receber ficheiro.chave_secreta:
+						byte[] keyFileBytes = new byte[1024];
+						FileOutputStream keyFileOutputStream = new FileOutputStream(userUte+"/" + chaveNome);
+						int keyFileLength;
+						while ((keyFileLength = inStream.read(keyFileBytes)) > 0) {
+							keyFileOutputStream.write(keyFileBytes, 0, keyFileLength);
+						}
+						keyFileOutputStream.close();
+
+						//Receber file.assinatura.userMed:
+						//Receber assinado size e nome:
+						Long assinadoSize = 0L;
+						String assinadoNome = "";
+						try{
+							assinadoSize = (Long)inStream.readObject();
+							assinadoNome = (String)inStream.readObject();
+						}catch (ClassNotFoundException e){
+							e.printStackTrace();
+						}
+						System.out.println("Recebido: " + op + ", " + assinadoNome + ", size: " + assinadoSize);
+
+						//Receber file assinada:
+						FileOutputStream outFileStream2 = new FileOutputStream(userUte + "/" + assinadoNome);
+						BufferedOutputStream outFile2 = new BufferedOutputStream(outFileStream2);
+
+						int file_s2 = assinadoSize.intValue();
+						byte[] buffer2 = new byte[1024];
+						int bytesRead2;
+						while (file_s2 > 0) {
+							bytesRead2 = inStream.read(buffer2, 0, Math.min(buffer2.length, file_s2));
+							outFile2.write(buffer2, 0, bytesRead2);
+							file_s2 -= bytesRead2;
+						}
+						outFile2.flush();
+						outFile2.close();
+						outFileStream2.close();
+
+						//Receber og file:
+						//Receber og size e nome:
+						Long ogSize = 0L;
+						String ogNome = "";
+						try{
+							ogSize = (Long)inStream.readObject();
+							ogNome = (String)inStream.readObject();
+						}catch (ClassNotFoundException e1) {
+							e1.printStackTrace();
+						}
+						System.out.println("Recebido: " + op + ", " + ogNome + ", size: " + ogSize);
+						//Receber original file:
+						FileOutputStream outFileStream3 = new FileOutputStream(userUte + "/" + ogNome);
+						BufferedOutputStream outFile3 = new BufferedOutputStream(outFileStream3);
+
+						int file_s3 = ogSize.intValue();
+						byte[] buffer3 = new byte[1024];
+						int bytesRead3;
+						while (file_s3 > 0) {
+							bytesRead3 = inStream.read(buffer3, 0, Math.min(buffer3.length, file_s3));
+							outFile3.write(buffer3, 0, bytesRead3);
+							file_s3 -= bytesRead3;
+						}
+						outFile3.flush();
+						outFile3.close();
+						outFileStream3.close();
 					}
 					else if (op.equals("-g")){
 						System.out.println("op -g");
