@@ -1,3 +1,4 @@
+import java.io.BufferedInputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
@@ -148,11 +149,11 @@ public class mySNS2 {
 
             //Fazer os updates com a signature
             byte[] b = new byte[16];
-                int x = fis.read(b);
-                while (x != -1) {
-                    s.update(b);
-                    x = fis.read(b);
-                }
+            int bytesRead;
+            while ((bytesRead = fis.read(b)) != -1) {
+                s.update(b, 0, bytesRead);
+            }
+            fis.close();
             //Escrevemos a signature para o fos:
             fos.write(s.sign());
 
@@ -161,15 +162,16 @@ public class mySNS2 {
         }
 
         fos.close();
-        fis.close();
     }
 
     public static boolean verificaAssinatura(String nome, String med) throws Exception {
         boolean verify = false;
         System.out.println(med);
+        System.out.println(nome);
         // verifica se a assin existe 
         String signatureFileName = nome + ".assinatura." + med;
         File signatureFile = new File(signatureFileName);
+        System.out.println(signatureFileName);
         if (!signatureFile.exists()) {
             System.out.println("Ficheiro assinado não existe na diretoria, " + signatureFileName);
             return false;
@@ -219,6 +221,27 @@ public class mySNS2 {
     
         return verify;
     }
+
+    public static void seguro(String nome, String med, String ute) throws Exception{
+        //Cifra ficheiros com o .seguro 
+        //Asina ficheiros com o .assinado."""med"""
+
+        cifraFicheiro(nome, med, ute);
+        assinaFicheiro(nome, med);
+        //Rename a file.cifrado para file.seguro e verifica que file.cifrado existe
+        File cifradoAntigo = new File(nome+".cifrado");
+        File cifradoNovo = new File (nome+".seguro");
+        if (cifradoAntigo.exists()){
+            cifradoAntigo.renameTo(cifradoNovo);
+            System.out.println(nome+".seguro criado com sucesso!");
+        }else{
+            System.out.println(nome+".cifrado não existe na diretoria, não é possivel criar o ficheiro:" + nome+".seguro");
+        }
+        File assinado = new File(nome+".assinado."+med);
+        if (assinado.exists()){
+            System.out.println(nome+".assinado."+med +"criado com sucesso!");
+        }
+    }
     
     public static void main (String[] args) throws Exception{
         String[] serverAdress; 
@@ -251,35 +274,229 @@ public class mySNS2 {
         System.out.println(op);
         System.out.println(files);
 
-
+        ObjectOutputStream out = new ObjectOutputStream(socket.getOutputStream());
+        ObjectInputStream in = new ObjectInputStream(socket.getInputStream());
 
         if (op.equals("-sc")){
             System.out.println("Opção -sc Escolhida");
             //Iteramos sobre as files
             if (files.size() > 0){
                 for (int f = 0; f < files.size(); f ++){
+                    //ciframos o fichero:
                     cifraFicheiro(files.get(f), userMed, userUte);
+
+                    //Enviar op, med e ute ao servidor:
+                    out.writeObject(op);
+                    out.writeObject(userMed);
+                    out.writeObject(userUte);
+
+                    //Verificar que file.cifrado e file.chave_secreta existem:
+                    File cifrado = new File(files.get(f)+".cifrado");
+                    File chave = new File(files.get(f)+".chave_secreta");
+                    if (cifrado.exists() && chave.exists()){
+                        //mandar file_size e file_name:
+                        out.writeObject(cifrado.length());
+                        out.writeObject(cifrado.getName());
+
+                        //mandar file.cifrado:
+                        FileInputStream cfile = new FileInputStream(cifrado);
+                        BufferedInputStream fileC = new BufferedInputStream(cfile);
+
+                        byte[] buffer = new byte[1024];
+                        int t = 0;
+                        while ((t = fileC.read(buffer, 0, 1024)) > 0) {
+                            out.write(buffer, 0, t);
+                        }
+
+                        fileC.close();
+                        cfile.close();
+
+                        //mandar file.chave_secreta:
+                        //mandar size e nome da file.chave_secreta:
+                        out.writeObject(chave.length());
+                        out.writeObject(chave.getName());
+
+                        System.out.println("A Enviar: " + chave.getName() + ", com a size: " + chave.length());
+
+                        //mandar file.chave_secreta:
+                        FileInputStream keyFileInputStream = new FileInputStream(chave);
+
+                        byte[] buf = new byte[(int) chave.length()];
+                        keyFileInputStream.read(buf, 0, buf.length);
+                        out.write(buf, 0, buf.length);
+
+                        keyFileInputStream.close();
+                    }else{
+                        System.out.println(files.get(f)+".cifrado/.chave_secreta não existe na diretoria");
+                        break; //? Aqui secalhar mandamos td a zeros?
+                    }
                 }
-
-                //Envia ficheiro cifrado e a chave wrapped:
-
+                out.writeObject("END");
+                out.writeObject("Dr.END");
+                out.writeObject("Mr.END");
             }else{
                 System.out.println("Não existem ficheiros");
             }
         }
+        
         else if (op.equals("-sa")){
             System.out.println("Opção -sa escolhida");
             if (files.size() > 0){
                 for (int f = 0; f < files.size(); f ++){
                     assinaFicheiro(files.get(f), userMed);
-                }
 
-                //Envia ficheiro original e ficheiro assinado pelo medico:
+                    //Enviar op, med e ute ao servidor:
+                    out.writeObject(op);
+                    out.writeObject(userMed);
+                    out.writeObject(userUte);
+
+                    //Verificar que file.assinado e file.og existem:
+                    File assinado = new File(files.get(f)+".assinatura."+userMed);
+                    File og = new File(files.get(f));
+                    if (assinado.exists() && og.exists()){
+                        //mandar assinado_size e assinado_name:
+                        out.writeObject(assinado.length());
+                        out.writeObject(assinado.getName());
+
+                        //mandar file.assinado.userMed:
+                        FileInputStream afile = new FileInputStream(assinado);
+                        BufferedInputStream fileA = new BufferedInputStream(afile);
+
+                        byte[] buffer = new byte[1024];
+                        int t = 0;
+                        while ((t = fileA.read(buffer, 0, 1024)) > 0) {
+                            out.write(buffer, 0, t);
+                        }
+
+                        fileA.close();
+                        afile.close();
+
+                        //mandar original file:
+                        //mandar o size e o nome:
+                        out.writeObject(og.length());
+                        out.writeObject(og.getName());
+
+                        //mandar original file:
+                        FileInputStream ogfile = new FileInputStream(og);
+                        BufferedInputStream fileOG = new BufferedInputStream(ogfile);
+
+                        byte[] buffer1 = new byte[1024];
+                        int i = 0;
+                        while ((i = fileOG.read(buffer1, 0, 1024)) > 0) {
+                            out.write(buffer1, 0, i);
+                        }
+
+                        fileOG.close();
+                        ogfile.close();
+
+
+                    } // se alguma file n existir
+                }
+                out.writeObject("END");
+                out.writeObject("Dr.END");
+                out.writeObject("Mr.END");
 
             }else{
                 System.out.println("Não existem ficheiros");
             }
             
+        }
+        else if (op.equals("-se")){
+            System.out.println("Opção -se escolhida");
+            if (files.size() > 0){
+                for (int f = 0; f < files.size(); f ++){
+                    seguro(files.get(f), userMed, userUte);
+
+                    //Enviar op, med e ute ao servidor:
+                    out.writeObject(op);
+                    out.writeObject(userMed);
+                    out.writeObject(userUte);
+
+                    //Mandar file.seguro, file.chave_secreta, file.assinatura.userMed e og file
+                    //Verificar que todas existem na nossa dir:
+                    File seguro = new File(files.get(f)+".seguro");
+                    File chave = new File(files.get(f)+".chave_secreta");
+                    File assinatura = new File(files.get(f)+".assinado."+userMed);
+                    File og = new File(files.get(f));
+                    if (seguro.exists() && chave.exists() && assinatura.exists() && og.exists()){
+                        //enviar seguro size e seguro nome:
+                        out.writeObject(seguro.length());
+                        out.writeObject(seguro.getName());
+
+                        //mandar file seguro:
+                        FileInputStream sfile = new FileInputStream(seguro);
+                        BufferedInputStream fileS = new BufferedInputStream(sfile);
+
+                        byte[] buffer = new byte[1024];
+                        int t = 0;
+                        while ((t = fileS.read(buffer, 0, 1024)) > 0) {
+                            out.write(buffer, 0, t);
+                        }
+
+                        fileS.close();
+                        sfile.close();
+
+                        //mandar chave size e chave nome:
+                        out.writeObject(chave.length());
+                        out.writeObject(chave.getName());
+
+                        //mandar file chave:
+                        FileInputStream chfile = new FileInputStream(chave);
+                        BufferedInputStream fileCh = new BufferedInputStream(chfile);
+
+                        byte[] buffer2 = new byte[1024];
+                        int i = 0;
+                        while ((i = fileCh.read(buffer2, 0, 1024)) > 0) {
+                            out.write(buffer2, 0, i);
+                        }
+
+                        fileCh.close();
+                        chfile.close();
+
+                        //mandar assinado size e nome:
+                        out.writeObject(assinatura.length());
+                        out.writeObject(assinatura.getName());
+
+                        //mandar file.assinatura.userMed:
+                        FileInputStream assfile = new FileInputStream(assinatura);
+                        BufferedInputStream fileAss = new BufferedInputStream(assfile);
+
+                        byte[] buffer3 = new byte[1024];
+                        int r = 0;
+                        while ((r = fileAss.read(buffer3, 0, 1024)) > 0) {
+                            out.write(buffer3, 0, r);
+                        }
+
+                        fileAss.close();
+                        assfile.close();
+
+                        //mandar og size e nome:
+                        out.writeObject(og.length());
+                        out.writeObject(og.getName());
+
+                        //mandar original file:
+                        FileInputStream ogfile = new FileInputStream(og);
+                        BufferedInputStream fileOG = new BufferedInputStream(ogfile);
+
+                        byte[] buffer4 = new byte[1024];
+                        int o = 0;
+                        while ((o = fileOG.read(buffer4, 0, 1024)) > 0) {
+                            out.write(buffer4, 0, o);
+                        }
+
+                        fileOG.close();
+                        ogfile.close();
+
+
+                    }//if alguma das files não existe na dir 
+                }
+                out.writeObject("END");
+                out.writeObject("Dr.END");
+                out.writeObject("Mr.END");
+            }else{
+                System.out.println("Não existem ficheiros");
+            }
+
         }
         else if (op.equals("-g")){
 
@@ -299,6 +516,8 @@ public class mySNS2 {
             }else{
                 System.out.println("Não existem ficheiros");
             }
+
+            
         }
     }  
 }
