@@ -10,6 +10,9 @@ import java.net.Socket;
 import java.util.ArrayList;
 import java.util.List;
 
+import javax.net.ServerSocketFactory;
+import javax.net.ssl.SSLServerSocketFactory;
+
 public class mySNSServer2 {
     
     public static void main (String[] args){
@@ -22,7 +25,11 @@ public class mySNSServer2 {
 		ServerSocket sSoc = null;
         
 		try {
-			sSoc = new ServerSocket(23456); //Porta de Escuta
+			//sSoc = new ServerSocket(23456); //Porta de Escuta
+			System.setProperty("javax.net.ssl.keyStore", "keystore.server"); 
+			System.setProperty("javax.net.ssl.keyStorePassword", "123456789");
+			ServerSocketFactory ssf = SSLServerSocketFactory.getDefault( );
+			sSoc = ssf.createServerSocket(23456); //Porta escuta
 		} catch (IOException e) {
 			System.err.println(e.getMessage());
 			System.exit(-1);
@@ -316,7 +323,9 @@ public class mySNSServer2 {
 						outFileStream3.close();
 					}
 					else if (op.equals("-g")){
-						System.out.println("op -g");
+						//Mandar todos os ficheiros 
+						
+
 					}
 
 					else if (op.equals("")){

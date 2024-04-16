@@ -23,6 +23,8 @@ import javax.crypto.CipherOutputStream;
 import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
+import javax.net.SocketFactory;
+import javax.net.ssl.SSLSocketFactory;
 
 public class mySNS2 {
 
@@ -196,7 +198,7 @@ public class mySNS2 {
             // vai buscar o cert usando o alias do medico
             Certificate cert = kstore.getCertificate(med);
             if (cert != null) {
-                PublicKey publicKey = cert.getPublicKey();
+                PublicKey publicKey = cert.getPublicKey(); //Public Key do medico 
     
                 Signature sig = Signature.getInstance("SHA256withRSA");
                 sig.initVerify(publicKey);
@@ -265,8 +267,11 @@ public class mySNS2 {
         }
 
         //criação do socket:
-        Socket socket = new Socket(serverAdress[0], (Integer.parseInt(serverAdress[1])));
-
+        //Socket socket = new Socket(serverAdress[0], (Integer.parseInt(serverAdress[1])));
+        System.setProperty("javax.net.ssl.trustStore", "truststore.client"); 
+        System.setProperty("javax.net.ssl.trustStorePassword", "123456789");
+        SocketFactory sf = SSLSocketFactory.getDefault();
+        Socket socket = sf.createSocket(serverAdress[0], (Integer.parseInt(serverAdress[1]))); // Addr:port nos args
 
         System.out.println((serverAdress[0] + ", " + serverAdress[1]));
         System.out.println(userMed);
