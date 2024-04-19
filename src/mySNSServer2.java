@@ -1,10 +1,12 @@
 import java.io.BufferedOutputStream;
+import java.io.BufferedInputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
+import java.io.OutputStream;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.ArrayList;
@@ -60,6 +62,7 @@ public class mySNSServer2 {
 			System.out.println("thread do server para cada cliente");
 		}
  
+		@SuppressWarnings({ "rawtypes", "unchecked" })
 		public void run(){
 			try {
 
@@ -323,14 +326,58 @@ public class mySNSServer2 {
 						outFileStream3.close();
 					}
 					else if (op.equals("-g")){
-						//Mandar todos os ficheiros 
+						//Mandar todos os ficheiros da dir do uteUse
+						//verificar se a dir do user existe:
+						File dirUte = new File (userUte);
+						//Receber o nome das files pedidas:
+						ArrayList<String> filesPedidas = new ArrayList<>();
+						try{
+							filesPedidas = (ArrayList)inStream.readObject();
+						}catch (ClassNotFoundException e){
+							e.printStackTrace();
+						}
+						System.out.println("Files pedidas: " + filesPedidas);
 						
+						if (dirUte.exists()){
+							File[] filesUte = dirUte.listFiles();
+							for (File f : filesUte){
+								
+								String fileName = f.getName().split("\\.")[0] +"." + f.getName().split("\\.")[1];
+								System.out.println("fileName na -g: " + fileName);
+								System.out.println("filePath na -g: " + f.getPath());
 
-					}
+								//Verificar se a File é pedida (verificamos a file original e.g: os 2 primeiros indices do split pelo "."):
+								if (filesPedidas.contains(fileName)){
+									//Enviar nome e size da file
+									outStream.writeObject(f.getName());
+									outStream.writeObject(f.length());
 
-					else if (op.equals("")){
-						break;
-					}
+									//Enviar a file:
+									FileInputStream fis = new FileInputStream(f.getPath());
+									BufferedInputStream bis = new BufferedInputStream(fis);
+
+									byte[] buffer = new byte[1024];
+									int i = 0;
+									while ((i = bis.read(buffer, 0, 1024)) > 0){
+										outStream.write(buffer, 0, i);
+
+									}
+
+									bis.close();
+									fis.close();
+
+								}	
+							}
+						}
+						
+						
+							//Enviar condição de paragem:
+							outStream.writeObject("END");
+							outStream.writeObject(0L);
+
+						}else{
+							System.out.println("dir Utente não existe no servidor");
+						}
 				
 					// //TODO: refazer
 					// //este codigo apenas exemplifica a comunicacao entre o cliente e o servidor

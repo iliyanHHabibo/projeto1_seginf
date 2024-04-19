@@ -1,4 +1,5 @@
 import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
@@ -79,9 +80,11 @@ public class mySNS2 {
     public static void decifraFicheiro (String nome, String ute, String nomeChave) throws Exception{
         //(nome = nome do ficheiro cifrado)
         //decifra com a chave privada do utente
-        try{
+        
             FileInputStream fis = new FileInputStream(nome);
             FileOutputStream fos = new FileOutputStream(nome + ".decifrado");
+
+            System.out.println("nome da chave no decifra: " + nomeChave);
 
             //buscar a chave privada do utente a sua keystore:
             String keystoreFileName = "keystore." + ute;
@@ -94,7 +97,7 @@ public class mySNS2 {
                 PrivateKey pk = (PrivateKey) myPrivateKey;
 
                 //ler a key: Verificar se a keyfile existe...
-                    //byte[] keyEncoded = new byte[2048];
+                //byte[] keyEncoded = new byte[2048];
                 FileInputStream keyFileInputStream = new FileInputStream(nomeChave);
                 byte[] wrappedKey = keyFileInputStream.readAllBytes();
                 System.out.println("KeyEncodedRSA: " + wrappedKey.toString());
@@ -126,10 +129,6 @@ public class mySNS2 {
             }else{
                 System.out.println("keystore." + ute + " não existe na diretoria");
             }
-
-        }catch (FileNotFoundException e){
-            System.out.println("Ficheiro " + nome + "não existe na diretoria");
-        }
     }
 
     public static void assinaFicheiro (String nome, String med) throws Exception{ //Verificar se o fich existe
@@ -166,24 +165,25 @@ public class mySNS2 {
         fos.close();
     }
 
-    public static boolean verificaAssinatura(String nome, String med) throws Exception {
+    public static boolean verificaAssinatura(String nome, String med, String ogNome) throws Exception {
         boolean verify = false;
         System.out.println(med);
         System.out.println(nome);
         // verifica se a assin existe 
-        String signatureFileName = nome + ".assinatura." + med;
-        File signatureFile = new File(signatureFileName);
-        System.out.println(signatureFileName);
-        if (!signatureFile.exists()) {
-            System.out.println("Ficheiro assinado não existe na diretoria, " + signatureFileName);
+        // String signatureFileName = nome + ".assinatura." + med;
+        // File signatureFile = new File(signatureFileName);
+        // System.out.println(signatureFileName);
+        File nomeFile = new File(nome);
+        if (!nomeFile.exists()) {
+            System.out.println("Ficheiro assinado não existe na diretoria, " + nomeFile.getName());
             return false;
         }
     
         // le o ficheiro original 
-        FileInputStream fis = new FileInputStream(nome);
+        FileInputStream fis = new FileInputStream(ogNome);
     
         // le o ficheiro assinado
-        FileInputStream sigFis = new FileInputStream(signatureFileName);
+        FileInputStream sigFis = new FileInputStream(nomeFile.getPath());
         byte[] signature = sigFis.readAllBytes();
         sigFis.close();
     
@@ -264,6 +264,19 @@ public class mySNS2 {
         //Guarda o nome dos ficheiros
         for(int i = 7; i < args.length; i++){
             files.add(args[i]);
+        }
+
+        //Cria diretoria Local:
+        File diretoriaLocal = new File("Diretoria_Cliente");
+        if (!diretoriaLocal.exists()){
+            diretoriaLocal.mkdirs();
+        }
+
+
+        //Verificar se o utente tem uma dir no cliente:
+        File diretoriaUtente = new File("Diretoria_Cliente/"+userUte);
+        if (!diretoriaUtente.exists()){
+            diretoriaUtente.mkdirs();
         }
 
         //criação do socket:
@@ -506,12 +519,77 @@ public class mySNS2 {
 
             System.out.println("Opção -g escolhida");
             if (files.size() > 0){
-                for (int f = 0; f < files.size(); f ++){
-                    //decifraFicheiro(files.get(f) +".cifrado", userUte, files.get(f)+".chave_secreta");
-                    if (verificaAssinatura(files.get(f), userMed)){
-                        System.out.println("Assinatura verificada com sucesso, foi o medico que assinou!");
-                    }else{
-                        System.out.println("Assinatura não verificada, ficheiro comprometido!");
+                //mandar userMed, user Ute e op
+                out.writeObject(op);
+                out.writeObject(userMed);
+                out.writeObject(userUte);
+
+                out.writeObject(files);
+
+                ArrayList<String> filesRecieved = new ArrayList<>();
+
+                while (true){
+                    
+                    String fileName = "";
+                    Long fileSize = 0L;
+                    try{
+                        fileName = (String)in.readObject();
+                        fileSize = (Long)in.readObject();
+                    }catch (ClassNotFoundException e){
+                        e.printStackTrace();
+                    }
+                    //Condição de saida
+                    if (fileName.equals("END")){
+                        break;
+                    }
+                    filesRecieved.add(fileName + ", " + fileSize);
+
+                    //Receber a file:
+                    FileOutputStream fos = new FileOutputStream("Diretoria_Cliente/"+ userUte + "/"+fileName);
+                    BufferedOutputStream bos = new BufferedOutputStream(fos);
+
+                    int file_s = fileSize.intValue();
+                    byte[] buffer = new byte[1024];
+                    int bytesRead;
+                    while (file_s > 0) {
+                        bytesRead = in.read(buffer, 0, Math.min(buffer.length, file_s));
+                        bos.write(buffer, 0, bytesRead);
+							file_s -= bytesRead;
+                    }
+                    bos.flush();
+                    bos.close();
+                    fos.close();
+                }
+                //System.out.println("Files recieved: " + filesRecieved);
+                //Iterar sobre as files recieved:
+                File[] LocalFiles = new File("Diretoria_Cliente/"+userUte).listFiles();
+                for (File f : LocalFiles){
+                    if (f.getName().split("\\.").length > 2  && !f.getName().split("\\.")[2].equals("chave_secreta") && !f.getName().split("\\.")[2].equals("assinado")){ 
+                        //Se não é a original file nem uma chave secreta:
+                        if (f.getName().split("\\.")[2].equals("cifrado") || f.getName().split("\\.")[2].equals("seguro")){
+                            System.out.println("****************************************");
+                            System.out.println("Para a file: " + f.getName() + " vamos decifrar!");
+                            //verificar se a chave existe:
+                            File key = new File("Diretoria_Cliente/"+ userUte + "/" + f.getName().split("\\.")[0] + "." + f.getName().split("\\.")[1] + ".chave_secreta");
+                            if (key.exists()){
+                                decifraFicheiro(f.getPath(), userUte, key.getPath());
+                            }else{
+                                System.out.println("Sem ficheiro "+ key.getName()+ " não é possivel decifrar o ficheiro: " + f.getName());
+                            }
+                            System.out.println("****************************************");
+                        }
+                        if (f.getName().split("\\.")[2].equals("assinatura")){
+                            System.out.println("****************************************");
+                            System.out.println("Para a file: " + f.getName() + " vamos verificar a assinatura!");
+                            //Verificar se temos o ficheiro og:
+                            File og = new File("Diretoria_Cliente/"+ userUte + "/" + f.getName().split("\\.")[0] + f.getName().split("\\.")[1]);
+                            if (og.exists()){
+                                //verifica assinatura
+                            }
+                            System.out.println("Sem o ficheiro original não é possivel verificar a assinatura do ficheiro: " + f.getName());
+
+                            System.out.println("****************************************");
+                        }
                     }
                 }
 
@@ -519,6 +597,9 @@ public class mySNS2 {
                 System.out.println("Não existem ficheiros");
             }
 
+            out.writeObject("END");
+            out.writeObject("Dr.End");
+            out.writeObject("Mr.End");
             
         }
     }  
