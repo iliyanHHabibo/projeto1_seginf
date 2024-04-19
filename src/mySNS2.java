@@ -560,7 +560,7 @@ public class mySNS2 {
                 for (File f : LocalFiles){
                     if (f.getName().split("\\.").length > 2  && !f.getName().split("\\.")[2].equals("chave_secreta") && !f.getName().split("\\.")[2].equals("assinado")){ 
                         //Se não é a original file nem uma chave secreta:
-                        if (f.getName().split("\\.")[2].equals("cifrado")){
+                        if (f.getName().split("\\.")[2].equals("cifrado") || f.getName().split("\\.")[2].equals("seguro")){
                             System.out.println("****************************************");
                             System.out.println("Para a file: " + f.getName() + " vamos decifrar!");
                             //verificar se a chave existe:
