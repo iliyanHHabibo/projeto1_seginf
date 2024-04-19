@@ -83,9 +83,6 @@ public class mySNS2 {
         
             FileInputStream fis = new FileInputStream(nome);
             FileOutputStream fos = new FileOutputStream(nome + ".decifrado");
-
-            System.out.println("nome da chave no decifra: " + nomeChave);
-
             //buscar a chave privada do utente a sua keystore:
             String keystoreFileName = "keystore." + ute;
             File keystoreFile = new File(keystoreFileName);
@@ -100,7 +97,6 @@ public class mySNS2 {
                 //byte[] keyEncoded = new byte[2048];
                 FileInputStream keyFileInputStream = new FileInputStream(nomeChave);
                 byte[] wrappedKey = keyFileInputStream.readAllBytes();
-                System.out.println("KeyEncodedRSA: " + wrappedKey.toString());
                 keyFileInputStream.close();
                 
                 //Fazer o unwrap da key:
@@ -167,8 +163,6 @@ public class mySNS2 {
 
     public static boolean verificaAssinatura(String nome, String med, String ogNome) throws Exception {
         boolean verify = false;
-        System.out.println(med);
-        System.out.println(nome);
         // verifica se a assin existe 
         // String signatureFileName = nome + ".assinatura." + med;
         // File signatureFile = new File(signatureFileName);
@@ -566,13 +560,14 @@ public class mySNS2 {
                 for (File f : LocalFiles){
                     if (f.getName().split("\\.").length > 2  && !f.getName().split("\\.")[2].equals("chave_secreta") && !f.getName().split("\\.")[2].equals("assinado")){ 
                         //Se não é a original file nem uma chave secreta:
-                        if (f.getName().split("\\.")[2].equals("cifrado") || f.getName().split("\\.")[2].equals("seguro")){
+                        if (f.getName().split("\\.")[2].equals("cifrado")){
                             System.out.println("****************************************");
                             System.out.println("Para a file: " + f.getName() + " vamos decifrar!");
                             //verificar se a chave existe:
                             File key = new File("Diretoria_Cliente/"+ userUte + "/" + f.getName().split("\\.")[0] + "." + f.getName().split("\\.")[1] + ".chave_secreta");
                             if (key.exists()){
                                 decifraFicheiro(f.getPath(), userUte, key.getPath());
+                                System.out.println(f.getName() + " ... decifrado!");
                             }else{
                                 System.out.println("Sem ficheiro "+ key.getName()+ " não é possivel decifrar o ficheiro: " + f.getName());
                             }
@@ -582,11 +577,15 @@ public class mySNS2 {
                             System.out.println("****************************************");
                             System.out.println("Para a file: " + f.getName() + " vamos verificar a assinatura!");
                             //Verificar se temos o ficheiro og:
-                            File og = new File("Diretoria_Cliente/"+ userUte + "/" + f.getName().split("\\.")[0] + f.getName().split("\\.")[1]);
+                            File og = new File("Diretoria_Cliente/"+ userUte + "/" + f.getName().split("\\.")[0] +"."+ f.getName().split("\\.")[1]);
                             if (og.exists()){
-                                //verifica assinatura
+                                //verifica assinatura:
+                                verificaAssinatura(f.getPath(), userMed, og.getPath());
+
+                            }else{
+                                System.out.println("Sem o ficheiro original: " + og.getPath() +" não é possivel verificar a assinatura do ficheiro: " + f.getName());
+
                             }
-                            System.out.println("Sem o ficheiro original não é possivel verificar a assinatura do ficheiro: " + f.getName());
 
                             System.out.println("****************************************");
                         }
