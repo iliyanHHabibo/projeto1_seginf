@@ -1,464 +1,606 @@
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.IOException;
-import java.io.OutputStream;
-import java.io.InputStream;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
+import java.io.ObjectInput;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutput;
+import java.io.ObjectOutputStream;
 import java.net.Socket;
-import java.nio.file.Files;
-import java.nio.file.Paths;
+import java.security.Key;
+import java.security.KeyStore;
+import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.security.Signature;
-import java.security.SignatureException;
+import java.security.cert.Certificate;
 import java.util.ArrayList;
 import java.util.List;
+
+import javax.crypto.Cipher;
+import javax.crypto.CipherInputStream;
+import javax.crypto.CipherOutputStream;
 import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
-import java.security.KeyStore;
-import java.security.NoSuchAlgorithmException;
-import java.security.PrivateKey;
-import java.security.cert.Certificate;
-import javax.crypto.Cipher;
-import javax.crypto.CipherOutputStream;
-import java.security.InvalidKeyException;
+import javax.crypto.spec.SecretKeySpec;
+import javax.net.SocketFactory;
+import javax.net.ssl.SSLSocketFactory;
 
+public class mySNS {
 
-public class mySNS{
-
-    private String serverAddressPort;
-    private String serverAddress;
-    private int serverPort;
-    private String doctorUsername;
-    private String patientUsername;
-    private List<String> scFiles = new ArrayList<>();
-    private List<String> saFiles = new ArrayList<>();
-    private List<String> seFiles = new ArrayList<>();
-    private List<String> gFiles = new ArrayList<>();
-
-    public static void main(String[] args) {
-        mySNS mySNS = new mySNS();
-        mySNS.parseArgs(args);
-        String mode;
-        if (mySNS.scFiles != null && !mySNS.scFiles.isEmpty()){
-            mode = "sc";
-            connectAndSend(mySNS.serverAddress, mySNS.serverPort, mode, mySNS.patientUsername, mySNS.doctorUsername, "123456", mySNS.scFiles);
-        }
-        //else if para os outros modos (sa, se, g)
-        else if (mySNS.saFiles != null && !mySNS.saFiles.isEmpty()) {
-            mode = "sa";
-            connectAndSend(mySNS.serverAddress, mySNS.serverPort, mode, mySNS.patientUsername, mySNS.doctorUsername, "123456", mySNS.saFiles);
-            
-        }
-    }
-
-    private void parseArgs(String[] args) {
-        List<String> currentList = null;
-        
-        for (int i = 0; i < args.length; i++) {
-            switch (args[i]) {
-                case "-a":
-                    serverAddressPort = args[++i];
-                    String[] splitAddressPort = serverAddressPort.split(":");
-                    if (splitAddressPort.length != 2) {
-                        throw new IllegalArgumentException("Server address and port must be in the format 'address:port'");
-                    }
-                    serverAddress = splitAddressPort[0];
-                    serverPort = Integer.parseInt(splitAddressPort[1]);
-                    break;
-                case "-m":
-                    doctorUsername = args[++i];
-                    break;
-                case "-u":
-                    patientUsername = args[++i];
-                    break;
-                case "-sc":
-                    scFiles = new ArrayList<>();
-                    currentList = scFiles; //from now on whatever we add to currentList will be added to scFiles. because currentList and scFiles are pointing to the same memory location. meaning they are the same list.
-                    break;
-                case "-sa":
-                    saFiles = new ArrayList<>();
-                    currentList = saFiles; 
-                    break;
-                case "-se":
-                    seFiles = new ArrayList<>();
-                    currentList = seFiles;
-                    break;
-                case "-g":
-                    gFiles = new ArrayList<>();
-                    currentList = gFiles;
-                    break;
-                default:
-                    if (currentList != null) {
-                        currentList.add(args[i]);
-                    } else {
-                        System.out.println("Unknown argument or option needs a value: " + args[i]);
-                    }
-                    break;
-            }
-        }
-    }
-
-    //method to verify if the files exist
-    private static boolean verifyFileExistence(String filename) {
-        //returns false if the file does not exist. returns true if the file exists.
-        File file = new File(filename);
-        if (!file.exists()) {
-            System.out.println("Erro: O ficheiro  " + filename + " não existe.");
-            return false;
-        }
-        return true;
-    }
-
-    //method to verify if keystore for patient exists
-    private static boolean verifyKeystoreExistence(String patientName) {
-        //returns false if the keystore does not exist. returns true if the keystore exists.
-        String keystore = patientName + ".keystore";
-
-        File keystoreFile = new File(keystore);
-
-        if (!keystoreFile.exists()) {
-            System.err.println("Erro: Keystore" + keystore + " não encontrada.");
-            return false;
-        }
-        return true;
-    }
-
-    // method to generate AES key. 128 bits
-    public static SecretKey generateAESKey() {
-        try {
-            KeyGenerator keyGenerator = KeyGenerator.getInstance("AES");
-            keyGenerator.init(128);
-            return keyGenerator.generateKey();
-        } catch (Exception e) {
-            e.printStackTrace();
-            return null;
-        }
-    }
-    public static PrivateKey getPrivateKey(String username, String keystorePassword, String alias) {
-        try {
-            // Carregar a keystore
-            FileInputStream is = new FileInputStream(username+".keystore");
-            KeyStore keystore = KeyStore.getInstance(KeyStore.getDefaultType());
-            keystore.load(is, keystorePassword.toCharArray());
-            is.close();
-
-            // Obter a chave privada
-            KeyStore.PrivateKeyEntry pkEntry = (KeyStore.PrivateKeyEntry) keystore.getEntry(alias,
-                    new KeyStore.PasswordProtection(keystorePassword.toCharArray()));
-            if (pkEntry == null) {
-                System.err.println("Entrada para o alias '" + alias + "' não encontrada ou senha incorreta.");
-                return null;
-            }
-
-            return pkEntry.getPrivateKey();
-        } catch (Exception e) {
-            e.printStackTrace();
-            return null;
-        }
-    }
-    public static PublicKey getPublicKey(String username, String keystorePassword, String alias) {
-        try {
-            // Carregar a keystore
-            FileInputStream is = new FileInputStream(username+".keystore");
-            KeyStore keystore = KeyStore.getInstance(KeyStore.getDefaultType());
-            keystore.load(is, keystorePassword.toCharArray());
-            is.close();
-
-            // Obter o certificado do usuário
-            Certificate cert = keystore.getCertificate(alias);
-            if (cert == null) {
-                System.err.println("Certificado para o alias '" + alias + "' não encontrado na keystore.");
-                return null;
-            }
-
-            // Retornar a chave pública associada ao certificado
-            return cert.getPublicKey();
-        } catch (Exception e) {
-            e.printStackTrace();
-            return null;
-        }
-    }
-    public static PublicKey getDoctorPublicKey(String patientUsername, String doctorUsername, String keyStorePassword) {
+    public static void cifraFicheiro (String nome, String med, String ute) throws Exception{
+        //(nome = nome do Ficheiro)
         try{
-            //we get the doctor's certificate from the patient's keystore
+            FileInputStream fis = new FileInputStream(nome);
+            FileOutputStream fos = new FileOutputStream(nome + ".cifrado");
 
-            //load the patient's keystore
-            FileInputStream is = new FileInputStream(patientUsername + ".keystore");
-            KeyStore keystore = KeyStore.getInstance(KeyStore.getDefaultType());
-            keystore.load(is, keyStorePassword.toCharArray());
-
-            //get the doctor's certificate from the keystore
-            Certificate doctorCertificate = keystore.getCertificate(doctorUsername);
-            if (doctorCertificate == null){
-                System.err.println("Erro: Certificado do médico não encontrado.");
-                return null;
-            }
-
-            //return the doctor's public key from the certificate
-            return doctorCertificate.getPublicKey();
-
-        } catch (Exception e){
-            e.printStackTrace();
-            System.err.println("Erro ao acessar a keystore ou ao obter a chave pública.");
-        }
-        return null;
-
-    }
-
-    //use the secret AES key to encrypt the file and sending it to the server
-    //receives success or failure message from the server
-    public static void encryptFileAndSend (String filename, SecretKey key, Socket socket, DataOutputStream dataOutputStream){
-        try{
-            // Initialize the cipher for encryption with the generated key
+            //Criar chave AES para cifrar o ficheiro:
+            KeyGenerator kg = KeyGenerator.getInstance("AES");
+            kg.init(128);
+            SecretKey key = kg.generateKey();
+            // Instanciar o Cipher para encryptar
             Cipher c = Cipher.getInstance("AES");
             c.init(Cipher.ENCRYPT_MODE, key);
 
-            // Open input and output streams for reading from and writing to files
-            FileInputStream fis = new FileInputStream(filename); // Open input stream to read from file filename 
+            //Encriptar ficheiro:
+            CipherOutputStream cos = new CipherOutputStream(fos, c);
+            byte[] b = new byte[16];
+                int x = fis.read(b);
+                while (x != -1) {
+                    cos.write(b, 0, x);
+                    x = fis.read(b);
+                }
+                cos.close();
             
-            //get the OutputStream of the Socket to send data to the server
-            OutputStream socketOut = socket.getOutputStream();
+            //buscar o cert do utente na keystore do medico:
+            FileInputStream kfile = new FileInputStream("keystore." + med);
+            KeyStore kstore = KeyStore.getInstance("PKCS12");
+            kstore.load(kfile, "1234567890".toCharArray()); // Passwrd
+            Certificate cert = kstore.getCertificate(ute); // chave publica do utente na keystore do medico
 
-            //tell the server that we have begun sending the file
-            dataOutputStream.writeUTF("inicio do envio do ficheiro:" + filename);
-            dataOutputStream.flush(); //guarantee that the data that may be in the buffer is sent to the server
+            //Instancira um segundo Cipher para encriptar a chave AES com RSA:
+            Cipher c2 = Cipher.getInstance("RSA");
+            c2.init(Cipher.WRAP_MODE, cert);
+            //Wrap da key:
+            byte[] keyWrapped = c2.wrap(key); // wrap da AES key
+            FileOutputStream kos = new FileOutputStream(nome + ".chave_secreta");
+            kos.write(keyWrapped);
+            kos.close();
 
-            // Lê o arquivo e criptografa
-            byte[] fileBytes = Files.readAllBytes(Paths.get(filename));
-            byte[] encryptedFileBytes = c.doFinal(fileBytes);
-            
-            // Envia o tamanho do arquivo criptografado
-            dataOutputStream.writeInt(encryptedFileBytes.length);
-            
-            // Envia o arquivo criptografado
-            dataOutputStream.write(encryptedFileBytes);
-
-            // Close the file input stream
+            fos.close();
             fis.close();
 
-            System.out.println("Ficheiro " + filename + " enviado com sucesso.");
-
-            // Preparar para receber a resposta do servidor
-            DataInputStream serverResponseStream = new DataInputStream(socket.getInputStream());
-            String serverResponse = serverResponseStream.readUTF(); // Ler a resposta do servidor
-
-            System.out.println("Resposta do servidor: " + serverResponse);
-
-        } catch (Exception e){
+        }catch (FileNotFoundException e){
+            System.out.println("Ficheiro " + nome + "não existe na diretoria");
             e.printStackTrace();
-            System.err.println("Erro ao encriptar o ficheiro.");
         }
     }
 
-    public static void encryptAndSendSecretKey(SecretKey key, PublicKey publicKey, Socket socket, String filename, DataOutputStream dataOutputStream) {
-        try {
-            // Initialize a Cipher for RSA encryption
-            Cipher cipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
-            cipher.init(Cipher.ENCRYPT_MODE, publicKey);
-    
-            // Encrypt the AES key with the RSA public key
-            byte[] encryptedKey = cipher.doFinal(key.getEncoded());
-    
-            // Inform the server that we are about to send an encrypted key
-            dataOutputStream.writeUTF("inicio do envio da chave secreta encriptada:" + filename);
-            dataOutputStream.flush();
-    
-            // Send the size of the encrypted key
-            dataOutputStream.writeInt(encryptedKey.length);
-            dataOutputStream.flush();
-    
-            // Send the encrypted key
-            dataOutputStream.write(encryptedKey);
-            dataOutputStream.flush();
-    
-            System.out.println("Chave secreta encriptada e tamanho enviados com sucesso.");
-    
-            // Prepare to receive the server's response
-            DataInputStream serverResponseStream = new DataInputStream(socket.getInputStream());
-            String serverResponse = serverResponseStream.readUTF(); // Read the server's response
-    
-            System.out.println("Resposta do servidor: " + serverResponse);
-        } catch (Exception e) {
-            e.printStackTrace();
-            System.err.println("Erro ao encriptar e enviar a chave secreta.");
-        }
-    }
-    
+    public static void decifraFicheiro (String nome, String ute, String nomeChave) throws Exception{
+        //(nome = nome do ficheiro cifrado)
+        //decifra com a chave privada do utente
+        
+            FileInputStream fis = new FileInputStream(nome);
+            FileOutputStream fos = new FileOutputStream(nome + ".decifrado");
+            //buscar a chave privada do utente a sua keystore:
+            String keystoreFileName = "keystore." + ute;
+            File keystoreFile = new File(keystoreFileName);
+            if (keystoreFile.exists()){ //se a keystore existir:
+                FileInputStream kfile = new FileInputStream("keystore." + ute);
+                KeyStore kstore = KeyStore.getInstance("PKCS12");
+                kstore.load(kfile, "1234567890".toCharArray()); // Passwrd
+                Key myPrivateKey = kstore.getKey("manel", "1234567890".toCharArray()); // chave PRIVADA
+                PrivateKey pk = (PrivateKey) myPrivateKey;
 
-    //method to do everything regarding the option -sc
-    public static void sc (Socket socket, List<String> fileList, String patientUsername, String doctorUsername, String keyStorePassword, DataOutputStream dataOutputStream){
-        try{
-            //verify if the keystore exists
-            if (!verifyKeystoreExistence(patientUsername)){
-                return;
-            }
+                //ler a key: Verificar se a keyfile existe...
+                //byte[] keyEncoded = new byte[2048];
+                FileInputStream keyFileInputStream = new FileInputStream(nomeChave);
+                byte[] wrappedKey = keyFileInputStream.readAllBytes();
+                keyFileInputStream.close();
+                
+                //Fazer o unwrap da key:
+                Cipher c = Cipher.getInstance("RSA");
+                c.init(Cipher.UNWRAP_MODE, pk); //unwrap cm a private key do utente
+                Key keyUnwraped = c.unwrap(wrappedKey, "AES", Cipher.SECRET_KEY);
+                byte[] keyEncoded2 = keyUnwraped.getEncoded();
+                SecretKeySpec keySpec2 = new SecretKeySpec(keyEncoded2, "AES");
 
-            //get the doctor's public key
-            PublicKey publicKey = getDoctorPublicKey(patientUsername, doctorUsername, keyStorePassword);
 
-            //send name of patient to server. so we can associate a directory to the patient
-            dataOutputStream.writeUTF(patientUsername);
-            dataOutputStream.flush(); //guarantee that the data that may be in the buffer is sent to the server
- 
+                Cipher c2 = Cipher.getInstance("AES");
+                c2.init(Cipher.DECRYPT_MODE, keySpec2);
 
-            //encrypt and send the files and the secret key
-            for (String filename : fileList){
-                if (verifyFileExistence(filename)){
-                     //generate AES key
-                    SecretKey key = generateAESKey();
-
-                    //encrypt the file and send it to the server
-                    encryptFileAndSend(filename, key, socket, dataOutputStream);
-
-                    //encrypt and send the secret key
-                    encryptAndSendSecretKey(key, publicKey, socket, filename, dataOutputStream);
+                //Decifrar:
+                CipherInputStream cis = new CipherInputStream(fis, c2);
+                byte[] b = new byte[64];  //aumentar este tamanho com testes maiores !!!
+                int i = cis.read(b);
+                while(i != -1){
+                    fos.write(b,0,i);
+                    i = cis.read(b);
                 }
+
+                cis.close();
+                fos.close();
+                fis.close();
+            }else{
+                System.out.println("keystore." + ute + " não existe na diretoria");
             }
-            //send message to server that we have finished sending files
-            dataOutputStream.writeUTF("FIM DO ENVIO DE FICHEIROS");
-            dataOutputStream.flush(); //guarantee that the data that may be in the buffer is sent to the server
-        } catch (Exception e){
-            e.printStackTrace();
-            System.err.println("Erro ao enviar ficheiros.");
+    }
+
+    public static void assinaFicheiro (String nome, String med) throws Exception{ //Verificar se o fich existe
+        FileInputStream fis = new FileInputStream(nome);
+        FileOutputStream fos = new FileOutputStream(nome + ".assinatura." + med);
+        System.out.println(med);
+        //Buscar a chave privada do medico:
+        String keystoreFileName = "keystore." + med;
+        File keystoreFile = new File(keystoreFileName);
+        if (keystoreFile.exists()){
+            FileInputStream kfile = new FileInputStream("keystore." + med);
+            KeyStore kstore = KeyStore.getInstance("PKCS12");
+            kstore.load(kfile, "1234567890".toCharArray()); // Passwrd
+            Key myPrivateKey = kstore.getKey("joao", "1234567890".toCharArray()); // chave PRIVADA
+            PrivateKey pk = (PrivateKey) myPrivateKey;
+
+            Signature s = Signature.getInstance("SHA256withRSA");
+            s.initSign(pk);
+
+            //Fazer os updates com a signature
+            byte[] b = new byte[16];
+            int bytesRead;
+            while ((bytesRead = fis.read(b)) != -1) {
+                s.update(b, 0, bytesRead);
+            }
+            fis.close();
+            //Escrevemos a signature para o fos:
+            fos.write(s.sign());
+
+        }else{
+            System.out.println("Keystore não existe na diretoria");
+        }
+
+        fos.close();
+    }
+
+    public static boolean verificaAssinatura(String nome, String med, String ogNome) throws Exception {
+        boolean verify = false;
+        // verifica se a assin existe 
+        // String signatureFileName = nome + ".assinatura." + med;
+        // File signatureFile = new File(signatureFileName);
+        // System.out.println(signatureFileName);
+        File nomeFile = new File(nome);
+        if (!nomeFile.exists()) {
+            System.out.println("Ficheiro assinado não existe na diretoria, " + nomeFile.getName());
+            return false;
+        }
+    
+        // le o ficheiro original 
+        FileInputStream fis = new FileInputStream(ogNome);
+    
+        // le o ficheiro assinado
+        FileInputStream sigFis = new FileInputStream(nomeFile.getPath());
+        byte[] signature = sigFis.readAllBytes();
+        sigFis.close();
+    
+        // buscar o cert da keystore
+        String keystoreFileName = "keystore." + med;
+        File keystoreFile = new File(keystoreFileName);
+        if (keystoreFile.exists()) {
+            FileInputStream kfile = new FileInputStream(keystoreFileName);
+            KeyStore kstore = KeyStore.getInstance("PKCS12");
+            kstore.load(kfile, "1234567890".toCharArray()); // Password
+    
+            // vai buscar o cert usando o alias do medico
+            Certificate cert = kstore.getCertificate(med);
+            if (cert != null) {
+                PublicKey publicKey = cert.getPublicKey(); //Public Key do medico 
+    
+                Signature sig = Signature.getInstance("SHA256withRSA");
+                sig.initVerify(publicKey);
+    
+                // le e faz o update da file
+                byte[] buffer = new byte[8192]; // 8 KB buffer
+                int bytesRead;
+                while ((bytesRead = fis.read(buffer)) != -1) {
+                    sig.update(buffer, 0, bytesRead);
+                }
+                fis.close();
+    
+                // verifica a signature
+                verify = sig.verify(signature);
+                System.out.println("Resultado da verificação: " + verify);
+            } else {
+                System.out.println("Certificado não encontrado para o alias: " + med);
+            }
+        } else {
+            System.out.println("Keystore não existe: " + keystoreFileName);
+        }
+    
+        return verify;
+    }
+
+    public static void seguro(String nome, String med, String ute) throws Exception{
+        //Cifra ficheiros com o .seguro 
+        //Asina ficheiros com o .assinado."""med"""
+
+        cifraFicheiro(nome, med, ute);
+        assinaFicheiro(nome, med);
+        //Rename a file.cifrado para file.seguro e verifica que file.cifrado existe
+        File cifradoAntigo = new File(nome+".cifrado");
+        File cifradoNovo = new File (nome+".seguro");
+        if (cifradoAntigo.exists()){
+            cifradoAntigo.renameTo(cifradoNovo);
+            System.out.println(nome+".seguro criado com sucesso!");
+        }else{
+            System.out.println(nome+".cifrado não existe na diretoria, não é possivel criar o ficheiro:" + nome+".seguro");
+        }
+        File assinado = new File(nome+".assinado."+med);
+        if (assinado.exists()){
+            System.out.println(nome+".assinado."+med +"criado com sucesso!");
         }
     }
-    //method to do everything regarding the option -sa
-    public static void sa(List<String> filenames, Socket socket, String patientUsername, String doctorUsername, String keyStorePassword) {
-        try {
-            DataOutputStream dos = new DataOutputStream(socket.getOutputStream());
-            DataInputStream dis = new DataInputStream(socket.getInputStream());
     
-            PrivateKey privateKey = getPrivateKey(patientUsername, keyStorePassword, patientUsername);
-            if (privateKey == null) {
-                System.err.println("Falha ao recuperar a chave privada.");
-                return;
-            }
-    
-            for (String filename : filenames) {
-                File file = new File(filename);
-                if (!file.exists()) {
-                    System.out.println("Erro: O arquivo " + filename + " não existe localmente.");
-                    continue;
-                }
-    
-                // Assinar o arquivo
-                byte[] signature = signFile(file, privateKey);
-                if (signature == null) {
-                    System.err.println("Falha ao assinar o arquivo.");
-                    continue;
-                }
-    
-                // Enviar nome do arquivo assinado
-                dos.writeUTF(file.getName() + ".assinado");
-    
-                // Enviar arquivo
-                sendFile(file, dos);
-    
-                // Enviar nome da assinatura
-                dos.writeUTF(file.getName() + ".assinatura." + doctorUsername);
-    
-                // Enviar assinatura
-                dos.writeInt(signature.length);
-                dos.write(signature);
-    
-                // Esperar resposta do servidor para cada arquivo e assinatura enviados
-                String response = dis.readUTF();
-                System.out.println(response);
-            }
-    
-            // Indicar ao servidor que a transmissão dos arquivos acabou
-            dos.writeUTF("FIM_DO_ENVIO_DE_FICHEIROS");
-            dos.flush();
-    
-        } catch (IOException e) {
-            e.printStackTrace();
-            System.err.println("Erro durante o envio de arquivos -sa.");
+    public static void main (String[] args) throws Exception{
+        String[] serverAdress; 
+        String userMed;
+        String userUte;
+        @SuppressWarnings({ "rawtypes", "unchecked" })
+        List<String> files = new ArrayList();
+
+        String op = "NoOp";
+
+        //Parse os Agrs:
+        //Guarda o serverAdress:
+        serverAdress = args[1].split(":");
+        //guardar userMedico, userUtente e op:
+        userMed = args[3];
+        userUte = args[5];
+        op = args[6];
+        //Guarda o nome dos ficheiros
+        for(int i = 7; i < args.length; i++){
+            files.add(args[i]);
         }
-    }
-    
+
+        //Cria diretoria Local:
+        File diretoriaLocal = new File("Diretoria_Cliente");
+        if (!diretoriaLocal.exists()){
+            diretoriaLocal.mkdirs();
+        }
 
 
-private static void sendFile(File file, DataOutputStream dos) throws IOException {
-    // Enviar tamanho do arquivo
-    long fileSize = file.length();
-    dos.writeLong(fileSize);
+        //Verificar se o utente tem uma dir no cliente:
+        File diretoriaUtente = new File("Diretoria_Cliente/"+userUte);
+        if (!diretoriaUtente.exists()){
+            diretoriaUtente.mkdirs();
+        }
 
-    // Enviar arquivo
-    FileInputStream fis = new FileInputStream(file);
-    byte[] buffer = new byte[4096];
-    int bytesRead;
-    while ((bytesRead = fis.read(buffer)) != -1) {
-        dos.write(buffer, 0, bytesRead);
-    }
-    fis.close();
-}
+        //criação do socket:
+        //Socket socket = new Socket(serverAdress[0], (Integer.parseInt(serverAdress[1])));
+        System.setProperty("javax.net.ssl.trustStore", "truststore.client"); 
+        System.setProperty("javax.net.ssl.trustStorePassword", "123456789");
+        SocketFactory sf = SSLSocketFactory.getDefault();
+        Socket socket = sf.createSocket(serverAdress[0], (Integer.parseInt(serverAdress[1]))); // Addr:port nos args
 
-private static byte[] signFile(File file, PrivateKey privateKey) {
-    try {
-        Signature privateSignature = Signature.getInstance("SHA256withRSA");
-        privateSignature.initSign(privateKey);
-        byte[] fileData = Files.readAllBytes(file.toPath());
-        privateSignature.update(fileData);
-        return privateSignature.sign();
-    } catch (NoSuchAlgorithmException | InvalidKeyException | SignatureException | IOException e) {
-        e.printStackTrace();
-        return null;
-    }
-}
+        System.out.println((serverAdress[0] + ", " + serverAdress[1]));
+        System.out.println(userMed);
+        System.out.println(userUte);
+        System.out.println(op);
+        System.out.println(files);
+
+        ObjectOutputStream out = new ObjectOutputStream(socket.getOutputStream());
+        ObjectInputStream in = new ObjectInputStream(socket.getInputStream());
+
+        if (op.equals("-sc")){
+            System.out.println("Opção -sc Escolhida");
+            //Iteramos sobre as files
+            if (files.size() > 0){
+                for (int f = 0; f < files.size(); f ++){
+                    //ciframos o fichero:
+                    cifraFicheiro(files.get(f), userMed, userUte);
+
+                    //Enviar op, med e ute ao servidor:
+                    out.writeObject(op);
+                    out.writeObject(userMed);
+                    out.writeObject(userUte);
+
+                    //Verificar que file.cifrado e file.chave_secreta existem:
+                    File cifrado = new File(files.get(f)+".cifrado");
+                    File chave = new File(files.get(f)+".chave_secreta");
+                    if (cifrado.exists() && chave.exists()){
+                        //mandar file_size e file_name:
+                        out.writeObject(cifrado.length());
+                        out.writeObject(cifrado.getName());
+
+                        //mandar file.cifrado:
+                        FileInputStream cfile = new FileInputStream(cifrado);
+                        BufferedInputStream fileC = new BufferedInputStream(cfile);
+
+                        byte[] buffer = new byte[1024];
+                        int t = 0;
+                        while ((t = fileC.read(buffer, 0, 1024)) > 0) {
+                            out.write(buffer, 0, t);
+                        }
+
+                        fileC.close();
+                        cfile.close();
+
+                        //mandar file.chave_secreta:
+                        //mandar size e nome da file.chave_secreta:
+                        out.writeObject(chave.length());
+                        out.writeObject(chave.getName());
+
+                        System.out.println("A Enviar: " + chave.getName() + ", com a size: " + chave.length());
+
+                        //mandar file.chave_secreta:
+                        FileInputStream keyFileInputStream = new FileInputStream(chave);
+
+                        byte[] buf = new byte[(int) chave.length()];
+                        keyFileInputStream.read(buf, 0, buf.length);
+                        out.write(buf, 0, buf.length);
+
+                        keyFileInputStream.close();
+                    }else{
+                        System.out.println(files.get(f)+".cifrado/.chave_secreta não existe na diretoria");
+                        break; //? Aqui secalhar mandamos td a zeros?
+                    }
+                }
+                out.writeObject("END");
+                out.writeObject("Dr.END");
+                out.writeObject("Mr.END");
+            }else{
+                System.out.println("Não existem ficheiros");
+            }
+        }
+        
+        else if (op.equals("-sa")){
+            System.out.println("Opção -sa escolhida");
+            if (files.size() > 0){
+                for (int f = 0; f < files.size(); f ++){
+                    assinaFicheiro(files.get(f), userMed);
+
+                    //Enviar op, med e ute ao servidor:
+                    out.writeObject(op);
+                    out.writeObject(userMed);
+                    out.writeObject(userUte);
+
+                    //Verificar que file.assinado e file.og existem:
+                    File assinado = new File(files.get(f)+".assinatura."+userMed);
+                    File og = new File(files.get(f));
+                    if (assinado.exists() && og.exists()){
+                        //mandar assinado_size e assinado_name:
+                        out.writeObject(assinado.length());
+                        out.writeObject(assinado.getName());
+
+                        //mandar file.assinado.userMed:
+                        FileInputStream afile = new FileInputStream(assinado);
+                        BufferedInputStream fileA = new BufferedInputStream(afile);
+
+                        byte[] buffer = new byte[1024];
+                        int t = 0;
+                        while ((t = fileA.read(buffer, 0, 1024)) > 0) {
+                            out.write(buffer, 0, t);
+                        }
+
+                        fileA.close();
+                        afile.close();
+
+                        //mandar original file:
+                        //mandar o size e o nome:
+                        out.writeObject(og.length());
+                        out.writeObject(og.getName());
+
+                        //mandar original file:
+                        FileInputStream ogfile = new FileInputStream(og);
+                        BufferedInputStream fileOG = new BufferedInputStream(ogfile);
+
+                        byte[] buffer1 = new byte[1024];
+                        int i = 0;
+                        while ((i = fileOG.read(buffer1, 0, 1024)) > 0) {
+                            out.write(buffer1, 0, i);
+                        }
+
+                        fileOG.close();
+                        ogfile.close();
 
 
-    // connects to server and calls functions sc, sa, se, g (string mode)
-    public static void connectAndSend(String serverAddress, int serverPort, String mode, String patientUsername, String doctorUsername, String keyStorePassword, List<String> fileList){
-        try{
-         // Establish connection to the server
-            Socket socket = new Socket(serverAddress, serverPort);
-            System.out.println("Conectado ao servidor em: " + serverAddress + ":" + serverPort); 
+                    } // se alguma file n existir
+                }
+                out.writeObject("END");
+                out.writeObject("Dr.END");
+                out.writeObject("Mr.END");
 
-            //case sc, sa, se, g (create one function for each and then call the functions here)
-            try (DataOutputStream dataOutputStream = new DataOutputStream(socket.getOutputStream())) {
-                switch (mode) {
-                    case "sc":
-                        dataOutputStream.writeUTF("sc");
-                        dataOutputStream.flush();
-                        sc(socket, fileList, patientUsername, doctorUsername, keyStorePassword, dataOutputStream);
-                        //close dataOutputStream
-                        dataOutputStream.close();
-                        break;
-                    case "sa":
-                        dataOutputStream.writeUTF("sa");
-                        dataOutputStream.flush();
-                        sa(fileList, socket, patientUsername, doctorUsername, keyStorePassword);
-                        //close dataOutputStream
-                        dataOutputStream.close();
-                        break;
+            }else{
+                System.out.println("Não existem ficheiros");
+            }
+            
+        }
+        else if (op.equals("-se")){
+            System.out.println("Opção -se escolhida");
+            if (files.size() > 0){
+                for (int f = 0; f < files.size(); f ++){
+                    seguro(files.get(f), userMed, userUte);
+
+                    //Enviar op, med e ute ao servidor:
+                    out.writeObject(op);
+                    out.writeObject(userMed);
+                    out.writeObject(userUte);
+
+                    //Mandar file.seguro, file.chave_secreta, file.assinatura.userMed e og file
+                    //Verificar que todas existem na nossa dir:
+                    File seguro = new File(files.get(f)+".seguro");
+                    File chave = new File(files.get(f)+".chave_secreta");
+                    File assinatura = new File(files.get(f)+".assinatura."+userMed);
+                    File og = new File(files.get(f));
+                    if (seguro.exists() && chave.exists() && assinatura.exists() && og.exists()){
+                        //enviar seguro size e seguro nome:
+                        out.writeObject(seguro.length());
+                        out.writeObject(seguro.getName());
+
+                        //mandar file seguro:
+                        FileInputStream sfile = new FileInputStream(seguro);
+                        BufferedInputStream fileS = new BufferedInputStream(sfile);
+
+                        byte[] buffer = new byte[1024];
+                        int t = 0;
+                        while ((t = fileS.read(buffer, 0, 1024)) > 0) {
+                            out.write(buffer, 0, t);
+                        }
+
+                        fileS.close();
+                        sfile.close();
+
+                        //mandar chave size e chave nome:
+                        out.writeObject(chave.length());
+                        out.writeObject(chave.getName());
+
+                        //mandar file chave:
+                        FileInputStream keyFileInputStream = new FileInputStream(chave);
+
+                        byte[] buf = new byte[(int) chave.length()];
+                        keyFileInputStream.read(buf, 0, buf.length);
+                        out.write(buf, 0, buf.length);
+
+                        keyFileInputStream.close();
+
+                        //mandar assinado size e nome:
+                        out.writeObject(assinatura.length());
+                        out.writeObject(assinatura.getName());
+
+                        //mandar file.assinatura.userMed:
+                        FileInputStream assfile = new FileInputStream(assinatura);
+                        BufferedInputStream fileAss = new BufferedInputStream(assfile);
+
+                        byte[] buffer3 = new byte[1024];
+                        int r = 0;
+                        while ((r = fileAss.read(buffer3, 0, 1024)) > 0) {
+                            out.write(buffer3, 0, r);
+                        }
+
+                        fileAss.close();
+                        assfile.close();
+
+                        //mandar og size e nome:
+                        out.writeObject(og.length());
+                        out.writeObject(og.getName());
+
+                        //mandar original file:
+                        FileInputStream ogfile = new FileInputStream(og);
+                        BufferedInputStream fileOG = new BufferedInputStream(ogfile);
+
+                        byte[] buffer4 = new byte[1024];
+                        int o = 0;
+                        while ((o = fileOG.read(buffer4, 0, 1024)) > 0) {
+                            out.write(buffer4, 0, o);
+                        }
+
+                        fileOG.close();
+                        ogfile.close();
+
+
+                    }//if alguma das files não existe na dir ´
+                    System.out.println("Alguma file na op -sa não existe na dir");
+                }
+                out.writeObject("END");
+                out.writeObject("Dr.END");
+                out.writeObject("Mr.END");
+            }else{
+                System.out.println("Não existem ficheiros");
+            }
+
+        }
+        else if (op.equals("-g")){
+
+            //Recebe ficheiros 
+
+            System.out.println("Opção -g escolhida");
+            if (files.size() > 0){
+                //mandar userMed, user Ute e op
+                out.writeObject(op);
+                out.writeObject(userMed);
+                out.writeObject(userUte);
+
+                out.writeObject(files);
+
+                ArrayList<String> filesRecieved = new ArrayList<>();
+
+                while (true){
                     
-                    case "se":
-                        dataOutputStream.writeUTF("se");
-                        dataOutputStream.flush();
-                        dataOutputStream.close();
+                    String fileName = "";
+                    Long fileSize = 0L;
+                    try{
+                        fileName = (String)in.readObject();
+                        fileSize = (Long)in.readObject();
+                    }catch (ClassNotFoundException e){
+                        e.printStackTrace();
+                    }
+                    //Condição de saida
+                    if (fileName.equals("END")){
                         break;
-                    default:
-                        System.out.println("Invalid mode");
-                        break;
+                    }
+                    filesRecieved.add(fileName + ", " + fileSize);
+
+                    //Receber a file:
+                    FileOutputStream fos = new FileOutputStream("Diretoria_Cliente/"+ userUte + "/"+fileName);
+                    BufferedOutputStream bos = new BufferedOutputStream(fos);
+
+                    int file_s = fileSize.intValue();
+                    byte[] buffer = new byte[1024];
+                    int bytesRead;
+                    while (file_s > 0) {
+                        bytesRead = in.read(buffer, 0, Math.min(buffer.length, file_s));
+                        bos.write(buffer, 0, bytesRead);
+							file_s -= bytesRead;
+                    }
+                    bos.flush();
+                    bos.close();
+                    fos.close();
                 }
-            } catch (IOException e) {
-                // Handle exceptions related to I/O operations
-                e.printStackTrace();
+                //System.out.println("Files recieved: " + filesRecieved);
+                //Iterar sobre as files recieved:
+                File[] LocalFiles = new File("Diretoria_Cliente/"+userUte).listFiles();
+                for (File f : LocalFiles){
+                    if (f.getName().split("\\.").length > 2  && !f.getName().split("\\.")[2].equals("chave_secreta") && !f.getName().split("\\.")[2].equals("assinado")){ 
+                        //Se não é a original file nem uma chave secreta:
+                        if (f.getName().split("\\.").length == 3 && (f.getName().split("\\.")[2].equals("cifrado") || f.getName().split("\\.")[2].equals("seguro"))){
+                            System.out.println("****************************************");
+                            
+                            System.out.println("Para a file: " + f.getName() + " vamos decifrar!");
+                            //verificar se a chave existe:
+                            File key = new File("Diretoria_Cliente/"+ userUte + "/" + f.getName().split("\\.")[0] + "." + f.getName().split("\\.")[1] + ".chave_secreta");
+                            if (key.exists()){
+                                decifraFicheiro(f.getPath(), userUte, key.getPath());
+                                System.out.println(f.getName() + " ... decifrado!");
+                            }else{
+                                System.out.println("Sem ficheiro "+ key.getName()+ " não é possivel decifrar o ficheiro: " + f.getName());
+                            }
+                            System.out.println("****************************************");
+                        }
+                        if (f.getName().split("\\.")[2].equals("assinatura")){
+                            System.out.println("****************************************");
+                            System.out.println("Para a file: " + f.getName() + " vamos verificar a assinatura!");
+                            //Verificar se temos o ficheiro og:
+                            File og = new File("Diretoria_Cliente/"+ userUte + "/" + f.getName().split("\\.")[0] +"."+ f.getName().split("\\.")[1]);
+                            if (og.exists()){
+                                //verifica assinatura:
+                                verificaAssinatura(f.getPath(), userMed, og.getPath());
+
+                            }else{
+                                System.out.println("Sem o ficheiro original: " + og.getPath() +" não é possivel verificar a assinatura do ficheiro: " + f.getName());
+
+                            }
+
+                            System.out.println("****************************************");
+                        }
+                    }
+                }
+
+            }else{
+                System.out.println("Não existem ficheiros");
             }
 
-            // Close the socket
-            socket.close();
-            System.out.println("Desconectado do servidor.");
-
-        } catch (Exception e){
-            System.out.println("Error: " + e.getMessage());
+            out.writeObject("END");
+            out.writeObject("Dr.End");
+            out.writeObject("Mr.End");
+            
         }
-    }
-
+    }  
 }
-
-
-//comando para compilar: javac mySNS.java
-//comando para correr(sc): java mySNS -a 127.0.0.1:23456 -m silva -u maria -sc exame1.png relatorio1.pdf
-//comando para correr (sa): java mySNS -a 127.0.0.1:23456 -m silva -u maria -sa exame1.png relatorio1.pdf
